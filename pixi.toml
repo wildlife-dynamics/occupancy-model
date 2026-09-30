@@ -33,7 +33,7 @@ hatchling = "*"
 hatch-vcs = "*"
 
 [feature.tasks.pypi-dependencies]
-occupancy-model-tasks = { path = ".", editable = true }
+occupancy-model-tasks = { path = "src", editable = true }
 
 [feature.tasks.tasks]
 test-tasks = "pytest -q tests/tasks"
