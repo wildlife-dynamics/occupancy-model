@@ -1,6 +1,14 @@
 [workspace]
 name = "occupancy-model"
-channels = ['https://repo.prefix.dev/ecoscope-workflows/', 'conda-forge']
+channels = [
+  # Uncomment to resolve against a local `pixi run build-release` output, so the
+  # tasks env picks up a freshly built occupancy-model-tasks before publish. Only
+  # works once that dir holds a built channel (no repodata there otherwise).
+  # "file:///tmp/ecoscope-workflows-custom/release/artifacts/",
+  'https://repo.prefix.dev/ecoscope-workflows/',
+  'conda-forge',
+  'https://repo.prefix.dev/ecoscope-workflows-custom/',
+]
 platforms = ['linux-64', 'osx-arm64', 'win-64']
 
 [tool.wt]
@@ -13,6 +21,15 @@ published = false
 wt-compiler = ">=0.10.1, <0.11"
 graphviz = "*"
 go-yq = "*"
+# Toolchain for publish/build.sh: hatch resolves HATCH_VCS_VERSION, rattler-build
+# builds and uploads the recipe.
+rattler-build = "*"
+hatch = "*"
+hatch-vcs = "*"
+pip = "*"
+
+[tasks]
+build-release = './publish/build.sh'
 
 # ---- task-package development (unit tests); not used by CI's compile/test ----
 [feature.tasks]

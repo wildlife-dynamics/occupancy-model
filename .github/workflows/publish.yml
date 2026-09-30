@@ -34,8 +34,8 @@ jobs:
         run: ls -lR /tmp/ecoscope-workflows-custom/release/artifacts
 
       - uses: actions/checkout@v4
-      - uses: prefix-dev/setup-pixi@v0.8.1
+      - uses: prefix-dev/setup-pixi@v0.10.2
         with:
-          pixi-version: v0.71.2
+          pixi-version: v0.81.0
       - name: Publish to prefix.dev
         run: pixi run --manifest-path pixi.toml -e default bash -c "./publish/push.sh"
