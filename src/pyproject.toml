@@ -8,9 +8,24 @@ dynamic = ["version"]
 description = "Tasks for the occupancy-model ecoscope workflow: GEE/distance covariate labelling of grid cells, a PyMC occupancy GLM, prediction COGs and risk zones."
 requires-python = ">=3.11"
 license = "BSD-3-Clause"
-# ecoscope-platform (pymc, arviz, earthengine-api, rasterio, contourpy, plotly) and
-# wt-registry are provided by the workflow env at runtime.
-dependencies = []
+# ecoscope-platform, wt-registry and wt-task are conda-only (prefix.dev
+# ecoscope-workflows channel), so they can't go here; the conda recipe's
+# `run:` section is what pins them.
+dependencies = [
+  "arviz",
+  "contourpy",
+  "earthengine-api",
+  "geopandas",
+  "numpy",
+  "pandas",
+  "plotly",
+  "pydantic>=2.0.0,<3.0.0",
+  "pymc",
+  "pytensor",
+  "rasterio",
+  "scipy",
+  "shapely",
+]
 
 # Makes @register()-decorated tasks discoverable by wt-registry.
 [project.entry-points."wt_registry"]
@@ -19,10 +34,8 @@ occupancy_model_tasks = "occupancy_model_tasks.tasks"
 [tool.hatch.version]
 source = "vcs"
 fallback-version = "0.0.0"
+# The git root is the repo root, one level up from this project dir.
+raw-options = { search_parent_directories = true }
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/occupancy_model_tasks"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-filterwarnings = ["ignore::DeprecationWarning", "ignore::FutureWarning"]
+packages = ["occupancy_model_tasks"]
