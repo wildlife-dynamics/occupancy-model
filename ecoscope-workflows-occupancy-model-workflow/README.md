@@ -6,7 +6,7 @@
 ```yaml
 # fingerprint:
 artifacts_sha256_basic: 653af0021f850af557027e325c2eef2db2d6f34d5b7b3e2df6b06cc925877498
-artifacts_sha256_strict: 5a12f5182c2fb93561a689fc9f537e94714ec552dc47d587606bf615afa858c6
+artifacts_sha256_strict: ee7835ea376fa1b6b3a497f8216c7390370859c1a3dec06a9be8812157abfc37
 installed_requirements:
 - channel: https://repo.prefix.dev/ecoscope-workflows/
   name: ecoscope-platform
@@ -14,6 +14,9 @@ installed_requirements:
 - channel: conda-forge
   name: pydeck
   version: {version: ==0.9.2}
+- channel: https://repo.prefix.dev/ecoscope-workflows-custom/
+  name: occupancy-model-tasks
+  version: {version: ==0.0.1}
 params_sha256: 659384f19e46f81bf9af26f5e10098247b27466dc481314c481ba8ceba07b695
 spec_sha256: 053b334d428905709dc06419b5212fa6b4b07d05cfddd70a58429edac683fc3a
 
