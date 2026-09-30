@@ -1,0 +1,1470 @@
+{
+  "properties": {
+    "workflow_details": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Workflow Name",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "title": "Workflow Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object",
+      "description": "Add information that will help to differentiate this workflow from another.",
+      "title": "Workflow Details"
+    },
+    "er_client_name": {
+      "additionalProperties": false,
+      "properties": {
+        "data_source": {
+          "$ref": "#/$defs/EarthRangerConnection",
+          "title": "",
+          "description": "Select one of your configured data sources."
+        }
+      },
+      "required": [
+        "data_source"
+      ],
+      "type": "object",
+      "title": "EarthRanger Data Source"
+    },
+    "gee_client_name": {
+      "additionalProperties": false,
+      "properties": {
+        "data_source": {
+          "$ref": "#/$defs/GoogleEarthEngineConnection",
+          "title": "",
+          "description": "Select one of your configured data sources."
+        }
+      },
+      "required": [
+        "data_source"
+      ],
+      "type": "object",
+      "title": "Earth Engine Data Source"
+    },
+    "time_range": {
+      "additionalProperties": false,
+      "properties": {
+        "since": {
+          "format": "date-time",
+          "title": "Since",
+          "type": "string",
+          "description": "The start time"
+        },
+        "until": {
+          "format": "date-time",
+          "title": "Until",
+          "type": "string",
+          "description": "The end time"
+        },
+        "timezone": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/TimezoneInfo"
+            }
+          ],
+          "default": null,
+          "title": "Timezone"
+        }
+      },
+      "required": [
+        "since",
+        "until"
+      ],
+      "type": "object",
+      "description": "Choose the period of time to analyze.",
+      "title": "Time Range"
+    },
+    "Study Area": {
+      "type": "object",
+      "description": " ",
+      "ecoscope:task_group": true,
+      "properties": {
+        "study_area": {
+          "additionalProperties": false,
+          "properties": {
+            "spatial_features_group_name": {
+              "title": "Study Area Feature Group",
+              "type": "string",
+              "description": "EarthRanger spatial feature group outlining the study area. Its polygons are gridded and predicted over.",
+              "ecoscope:transform": [
+                {
+                  "transformer": "EarthRangerEnumResolver",
+                  "transformer_kws": {
+                    "type": "spatial_feature_group",
+                    "depends_on": "properties.er_client_name.properties.data_source.properties.name"
+                  }
+                }
+              ]
+            }
+          },
+          "required": [
+            "spatial_features_group_name"
+          ],
+          "type": "object",
+          "title": ""
+        }
+      }
+    },
+    "Patrol and Event Types": {
+      "type": "object",
+      "description": " ",
+      "ecoscope:task_group": true,
+      "properties": {
+        "er_patrol_and_events_params": {
+          "additionalProperties": false,
+          "properties": {
+            "patrol_types": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Patrol Types",
+              "type": "array",
+              "description": "Patrols whose tracks count as survey effort. Leave empty to include all patrol types.",
+              "default": [],
+              "ecoscope:transform": [
+                {
+                  "transformer": "EarthRangerEnumResolver",
+                  "transformer_kws": {
+                    "type": "patrol_type",
+                    "depends_on": "properties.er_client_name.properties.data_source.properties.name"
+                  }
+                }
+              ]
+            },
+            "event_types": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Target Event Types",
+              "type": "array",
+              "description": "Event types recorded on those patrols whose occurrence is modelled. Enter the EarthRanger event type value (e.g. snare_rep), not its display name.",
+              "default": [],
+              "ecoscope:transform": [
+                {
+                  "transformer": "EarthRangerEnumResolver",
+                  "transformer_kws": {
+                    "type": "event_type",
+                    "depends_on": "properties.er_client_name.properties.data_source.properties.name"
+                  }
+                }
+              ]
+            },
+            "status": {
+              "default": [
+                "done"
+              ],
+              "items": {
+                "type": "string",
+                "oneOf": [
+                  {
+                    "const": "active",
+                    "title": "Active"
+                  },
+                  {
+                    "const": "overdue",
+                    "title": "Overdue"
+                  },
+                  {
+                    "const": "done",
+                    "title": "Done"
+                  },
+                  {
+                    "const": "cancelled",
+                    "title": "Cancelled"
+                  }
+                ]
+              },
+              "title": "Patrol Status",
+              "type": "array",
+              "description": "Choose to analyze patrols with a certain status. If left empty, patrols of all status will be analyzed",
+              "uniqueItems": true,
+              "ecoscope:advanced": true
+            }
+          },
+          "required": [
+            "patrol_types",
+            "event_types"
+          ],
+          "type": "object",
+          "title": ""
+        }
+      }
+    },
+    "Filter Data": {
+      "type": "object",
+      "description": " ",
+      "ecoscope:task_group": true,
+      "properties": {
+        "patrol_filters": {
+          "additionalProperties": false,
+          "properties": {
+            "bounding_box": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/BoundingBox"
+                }
+              ],
+              "default": {
+                "min_y": -90.0,
+                "max_y": 90.0,
+                "min_x": -180.0,
+                "max_x": 180.0
+              },
+              "title": "Bounding Box",
+              "description": "Only include observations/events inside this bounding box.",
+              "ecoscope:advanced": true
+            },
+            "filter_point_coords": {
+              "default": [
+                {
+                  "y": 90.0,
+                  "x": 180.0
+                },
+                {
+                  "y": 0.0,
+                  "x": 0.0
+                },
+                {
+                  "y": 1.0,
+                  "x": 1.0
+                }
+              ],
+              "items": {
+                "$ref": "#/$defs/Coordinate"
+              },
+              "title": "Filter Exact Point Coordinates",
+              "type": "array",
+              "description": "Exclude observations/events at these exact coordinates.",
+              "ecoscope:advanced": true
+            },
+            "trajectory_segment_filter": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/TrajectorySegmentFilter"
+                }
+              ],
+              "default": {
+                "min_length_meters": 0.001,
+                "max_length_meters": 100000,
+                "min_time_secs": 1,
+                "max_time_secs": 172800,
+                "min_speed_kmhr": 0.01,
+                "max_speed_kmhr": 500
+              },
+              "title": "Trajectory Filter",
+              "description": "Drop trajectory segments outside these length/time/speed bounds.",
+              "ecoscope:advanced": true
+            }
+          },
+          "type": "object",
+          "required": [],
+          "title": ""
+        }
+      }
+    },
+    "Grid": {
+      "type": "object",
+      "description": " ",
+      "ecoscope:task_group": true,
+      "properties": {
+        "meshgrid": {
+          "additionalProperties": false,
+          "properties": {
+            "auto_scale_or_custom_cell_size": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/AutoScaleGridCellSize"
+                },
+                {
+                  "$ref": "#/$defs/CustomGridCellSize"
+                }
+              ],
+              "default": {
+                "auto_scale_or_custom": "Customize",
+                "grid_cell_size": 1000
+              },
+              "title": "Grid Cell Size",
+              "ecoscope:advanced": false
+            }
+          },
+          "required": [],
+          "type": "object",
+          "title": ""
+        }
+      }
+    },
+    "Covariates": {
+      "type": "object",
+      "description": "Environmental covariates that explain where target events occur. Each is summarised over every grid cell.",
+      "ecoscope:task_group": true,
+      "properties": {
+        "gee_covariates": {
+          "additionalProperties": false,
+          "properties": {
+            "covariates": {
+              "default": [
+                {
+                  "kind": "image_band",
+                  "name": "elevation",
+                  "image_id": "USGS/SRTMGL1_003",
+                  "band": "elevation",
+                  "reducer": "mean",
+                  "scale_m": 30.0,
+                  "multiplier": 1.0,
+                  "quadratic": false
+                },
+                {
+                  "kind": "terrain",
+                  "name": "slope",
+                  "derivative": "slope",
+                  "dem_image_id": "USGS/SRTMGL1_003",
+                  "band": "elevation",
+                  "scale_m": 30.0,
+                  "quadratic": false
+                },
+                {
+                  "kind": "collection_composite",
+                  "name": "ndvi",
+                  "collection_id": "MODIS/061/MOD13Q1",
+                  "band": "NDVI",
+                  "composite": "mean",
+                  "start_date": "",
+                  "end_date": "",
+                  "scale_m": 250.0,
+                  "multiplier": 0.0001,
+                  "quadratic": false
+                }
+              ],
+              "items": {
+                "discriminator": {
+                  "mapping": {
+                    "collection_composite": "#/$defs/CollectionCompositeCovariate",
+                    "gee_distance": "#/$defs/GeeDistanceCovariate",
+                    "image_band": "#/$defs/ImageBandCovariate",
+                    "terrain": "#/$defs/TerrainCovariate"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/ImageBandCovariate"
+                  },
+                  {
+                    "$ref": "#/$defs/TerrainCovariate"
+                  },
+                  {
+                    "$ref": "#/$defs/CollectionCompositeCovariate"
+                  },
+                  {
+                    "$ref": "#/$defs/GeeDistanceCovariate"
+                  }
+                ]
+              },
+              "title": "Earth Engine Covariates",
+              "type": "array",
+              "description": "Covariates sampled from Google Earth Engine for every grid cell."
+            }
+          },
+          "type": "object",
+          "required": [],
+          "title": ""
+        },
+        "distance_covariates": {
+          "additionalProperties": false,
+          "properties": {
+            "covariates": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/DistanceCovariate"
+              },
+              "title": "Distance Covariates",
+              "type": "array",
+              "description": "Distance from each cell centre to the nearest feature of your own layers (e.g. ranger stations, roads)."
+            }
+          },
+          "type": "object",
+          "required": [],
+          "title": ""
+        }
+      }
+    },
+    "Model": {
+      "type": "object",
+      "description": " ",
+      "ecoscope:task_group": true,
+      "properties": {
+        "occupancy_design": {
+          "additionalProperties": false,
+          "properties": {
+            "min_effort_km": {
+              "default": 0.5,
+              "minimum": 0.0,
+              "title": "Minimum Patrol Effort per Cell (km)",
+              "type": "number",
+              "description": "A cell counts as surveyed once patrols covered at least this distance in it; surveyed cells without a target event are absences."
+            }
+          },
+          "required": [],
+          "type": "object",
+          "title": ""
+        },
+        "occupancy_fit": {
+          "additionalProperties": false,
+          "properties": {
+            "model_type": {
+              "default": "cloglog_effort",
+              "title": "Model Type",
+              "description": "Effort-adjusted accounts for how far patrols went in each cell; Logistic treats every surveyed cell alike.",
+              "oneOf": [
+                {
+                  "const": "cloglog_effort",
+                  "title": "Effort-adjusted (cloglog + log effort)"
+                },
+                {
+                  "const": "logit",
+                  "title": "Logistic (presence/absence)"
+                }
+              ]
+            },
+            "prior_sd": {
+              "default": 1.0,
+              "exclusiveMinimum": 0.0,
+              "title": "Coefficient Prior SD",
+              "type": "number",
+              "description": "Standard deviation of the Normal prior on each standardised coefficient; smaller shrinks harder.",
+              "ecoscope:advanced": true
+            },
+            "holdout_fraction": {
+              "default": 0.2,
+              "exclusiveMaximum": 0.9,
+              "minimum": 0.0,
+              "title": "Holdout Fraction",
+              "type": "number",
+              "description": "Share of surveyed cells held out to measure predictive accuracy (AUC). 0 uses all cells.",
+              "ecoscope:advanced": true
+            },
+            "mcmc": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/McmcSettings"
+                }
+              ],
+              "default": {
+                "draws": 1000,
+                "tune": 1000,
+                "chains": 2,
+                "random_seed": 42
+              },
+              "title": "MCMC Sampling",
+              "ecoscope:advanced": true
+            }
+          },
+          "required": [],
+          "type": "object",
+          "title": ""
+        }
+      }
+    },
+    "Prediction and Occupancy Zones": {
+      "type": "object",
+      "description": " ",
+      "ecoscope:task_group": true,
+      "properties": {
+        "predicted": {
+          "additionalProperties": false,
+          "properties": {
+            "reference_effort_km": {
+              "default": 1.0,
+              "exclusiveMinimum": 0.0,
+              "title": "Reference Patrol Effort (km)",
+              "type": "number",
+              "description": "Effort-adjusted model only: predictions are the probability of at least one detection per this distance of patrolling."
+            }
+          },
+          "required": [],
+          "type": "object",
+          "title": ""
+        },
+        "occupancy_zones": {
+          "additionalProperties": false,
+          "properties": {
+            "min_patch_area_km2": {
+              "default": 2.0,
+              "minimum": 0.0,
+              "title": "Minimum Zone Patch Area (km\u00b2)",
+              "type": "number",
+              "description": "Smaller patches are dropped."
+            },
+            "max_hole_area_km2": {
+              "default": 2.0,
+              "minimum": 0.0,
+              "title": "Maximum Hole Area to Fill (km\u00b2)",
+              "type": "number",
+              "description": "Smaller holes inside a zone are filled."
+            }
+          },
+          "required": [],
+          "type": "object",
+          "title": ""
+        }
+      }
+    },
+    "base_map_defs": {
+      "additionalProperties": false,
+      "properties": {
+        "base_maps": {
+          "default": [
+            {
+              "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
+              "opacity": 1,
+              "max_zoom": 20,
+              "min_zoom": 0
+            },
+            {
+              "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+              "opacity": 0.5,
+              "max_zoom": 20,
+              "min_zoom": 0
+            }
+          ],
+          "items": {
+            "title": "Base Layer",
+            "anyOf": [
+              {
+                "description": "A tiled raster layer loaded on-demand from a URL template (e.g., base maps).",
+                "properties": {
+                  "url": {
+                    "default": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                    "title": "Preset Layer URL",
+                    "type": "string",
+                    "const": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                    "enum": [
+                      "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    ]
+                  },
+                  "opacity": {
+                    "default": 1,
+                    "description": "Set layer transparency from 1 (fully visible) to 0 (hidden).",
+                    "ecoscope:advanced": true,
+                    "maximum": 1.0,
+                    "minimum": 0.0,
+                    "title": "Layer Opacity",
+                    "type": "number"
+                  }
+                },
+                "title": "Open Street Map",
+                "type": "object"
+              },
+              {
+                "description": "A tiled raster layer loaded on-demand from a URL template (e.g., base maps).",
+                "properties": {
+                  "url": {
+                    "default": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+                    "title": "Preset Layer URL",
+                    "type": "string",
+                    "const": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+                    "enum": [
+                      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}"
+                    ]
+                  },
+                  "opacity": {
+                    "default": 1,
+                    "description": "Set layer transparency from 1 (fully visible) to 0 (hidden).",
+                    "ecoscope:advanced": true,
+                    "maximum": 1.0,
+                    "minimum": 0.0,
+                    "title": "Layer Opacity",
+                    "type": "number"
+                  }
+                },
+                "title": "Roadmap",
+                "type": "object"
+              },
+              {
+                "description": "A tiled raster layer loaded on-demand from a URL template (e.g., base maps).",
+                "properties": {
+                  "url": {
+                    "default": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+                    "title": "Preset Layer URL",
+                    "type": "string",
+                    "const": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+                    "enum": [
+                      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                    ]
+                  },
+                  "opacity": {
+                    "default": 1,
+                    "description": "Set layer transparency from 1 (fully visible) to 0 (hidden).",
+                    "ecoscope:advanced": true,
+                    "maximum": 1.0,
+                    "minimum": 0.0,
+                    "title": "Layer Opacity",
+                    "type": "number"
+                  }
+                },
+                "title": "Satellite",
+                "type": "object"
+              },
+              {
+                "description": "A tiled raster layer loaded on-demand from a URL template (e.g., base maps).",
+                "properties": {
+                  "url": {
+                    "default": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
+                    "title": "Preset Layer URL",
+                    "type": "string",
+                    "const": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
+                    "enum": [
+                      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
+                    ]
+                  },
+                  "opacity": {
+                    "default": 1,
+                    "description": "Set layer transparency from 1 (fully visible) to 0 (hidden).",
+                    "ecoscope:advanced": true,
+                    "maximum": 1.0,
+                    "minimum": 0.0,
+                    "title": "Layer Opacity",
+                    "type": "number"
+                  }
+                },
+                "title": "Terrain",
+                "type": "object"
+              },
+              {
+                "description": "A tiled raster layer loaded on-demand from a URL template (e.g., base maps).",
+                "properties": {
+                  "url": {
+                    "default": "https://server.arcgisonline.com/arcgis/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}",
+                    "title": "Preset Layer URL",
+                    "type": "string",
+                    "const": "https://server.arcgisonline.com/arcgis/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}",
+                    "enum": [
+                      "https://server.arcgisonline.com/arcgis/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}"
+                    ]
+                  },
+                  "opacity": {
+                    "default": 1,
+                    "description": "Set layer transparency from 1 (fully visible) to 0 (hidden).",
+                    "ecoscope:advanced": true,
+                    "maximum": 1.0,
+                    "minimum": 0.0,
+                    "title": "Layer Opacity",
+                    "type": "number"
+                  }
+                },
+                "title": "USGS Hillshade",
+                "type": "object"
+              },
+              {
+                "description": "A tiled raster layer loaded on-demand from a URL template (e.g., base maps).",
+                "properties": {
+                  "url": {
+                    "default": "https://example.tiles.com/{z}/{x}/{y}.png",
+                    "description": "The URL of a publicly accessible tiled raster service.",
+                    "pattern": "https?:\\/\\/(www\\.)?[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\.[a-zA-Z0-9()]{1,6}([-a-zA-Z0-9()@:%_\\+.~#?&//=\\{\\}]*)",
+                    "title": "Custom Layer URL",
+                    "type": "string"
+                  },
+                  "opacity": {
+                    "default": 1,
+                    "description": "Set layer transparency from 1 (fully visible) to 0 (hidden).",
+                    "ecoscope:advanced": true,
+                    "maximum": 1.0,
+                    "minimum": 0.0,
+                    "title": "Custom Layer Opacity",
+                    "type": "number"
+                  },
+                  "max_zoom": {
+                    "default": 20,
+                    "description": "Set the maximum zoom level to fetch tiles for.",
+                    "title": "Custom Layer Max Zoom",
+                    "type": "integer"
+                  },
+                  "min_zoom": {
+                    "default": 0,
+                    "description": "Set the minimum zoom level to fetch tiles for.",
+                    "title": "Custom Layer Min Zoom",
+                    "type": "integer"
+                  }
+                },
+                "title": "Custom Layer (Advanced)",
+                "type": "object"
+              }
+            ]
+          },
+          "title": " ",
+          "type": "array",
+          "description": "Select tile layers to use as base layers in map outputs. The first layer in the list will be the bottommost layer displayed.",
+          "ecoscope:advanced": true
+        }
+      },
+      "type": "object",
+      "required": [],
+      "title": "Base Maps"
+    }
+  },
+  "$defs": {
+    "EarthRangerConnection": {
+      "properties": {
+        "name": {
+          "title": "Data Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "EarthRangerConnection",
+      "type": "object"
+    },
+    "GoogleEarthEngineConnection": {
+      "properties": {
+        "name": {
+          "title": "Data Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "GoogleEarthEngineConnection",
+      "type": "object"
+    },
+    "TimezoneInfo": {
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "tzCode": {
+          "title": "Tzcode",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "utc": {
+          "title": "Utc",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "tzCode",
+        "name",
+        "utc"
+      ],
+      "title": "TimezoneInfo",
+      "type": "object"
+    },
+    "BoundingBox": {
+      "properties": {
+        "min_y": {
+          "default": -90.0,
+          "ecoscope:advanced": true,
+          "title": "Min Latitude",
+          "type": "number"
+        },
+        "max_y": {
+          "default": 90.0,
+          "ecoscope:advanced": true,
+          "title": "Max Latitude",
+          "type": "number"
+        },
+        "min_x": {
+          "default": -180.0,
+          "ecoscope:advanced": true,
+          "title": "Min Longitude",
+          "type": "number"
+        },
+        "max_x": {
+          "default": 180.0,
+          "ecoscope:advanced": true,
+          "title": "Max Longitude",
+          "type": "number"
+        }
+      },
+      "title": "BoundingBox",
+      "type": "object"
+    },
+    "Coordinate": {
+      "properties": {
+        "y": {
+          "description": "Example -0.15293",
+          "title": "Latitude",
+          "type": "number"
+        },
+        "x": {
+          "description": "Example 37.30906",
+          "title": "Longitude",
+          "type": "number"
+        }
+      },
+      "required": [
+        "y",
+        "x"
+      ],
+      "title": "Coordinate",
+      "type": "object"
+    },
+    "TrajectorySegmentFilter": {
+      "properties": {
+        "min_length_meters": {
+          "default": 0.001,
+          "ecoscope:advanced": true,
+          "minimum": 0.001,
+          "title": "Minimum Segment Length (Meters)",
+          "type": "number"
+        },
+        "max_length_meters": {
+          "default": 100000,
+          "ecoscope:advanced": true,
+          "exclusiveMinimum": 0.001,
+          "title": "Maximum Segment Length (Meters)",
+          "type": "number"
+        },
+        "min_time_secs": {
+          "default": 1,
+          "ecoscope:advanced": true,
+          "minimum": 1,
+          "title": "Minimum Segment Duration (Seconds)",
+          "type": "number"
+        },
+        "max_time_secs": {
+          "default": 172800,
+          "ecoscope:advanced": true,
+          "exclusiveMinimum": 1,
+          "title": "Maximum Segment Duration (Seconds)",
+          "type": "number"
+        },
+        "min_speed_kmhr": {
+          "default": 0.01,
+          "ecoscope:advanced": true,
+          "exclusiveMinimum": 0.001,
+          "title": "Minimum Segment Speed (Kilometers per Hour)",
+          "type": "number"
+        },
+        "max_speed_kmhr": {
+          "default": 500,
+          "ecoscope:advanced": true,
+          "exclusiveMinimum": 0.001,
+          "title": "Maximum Segment Speed (Kilometers per Hour)",
+          "type": "number"
+        }
+      },
+      "title": "TrajectorySegmentFilter",
+      "type": "object"
+    },
+    "AutoScaleGridCellSize": {
+      "properties": {
+        "auto_scale_or_custom": {
+          "const": "Auto-scale",
+          "default": "Auto-scale",
+          "ecoscope:advanced": true,
+          "enum": [
+            "Auto-scale"
+          ],
+          "title": "Grid Cell Size",
+          "type": "string"
+        }
+      },
+      "title": "Auto-scale",
+      "type": "object"
+    },
+    "CustomGridCellSize": {
+      "properties": {
+        "auto_scale_or_custom": {
+          "const": "Customize",
+          "default": "Customize",
+          "ecoscope:advanced": true,
+          "enum": [
+            "Customize"
+          ],
+          "title": "Grid Cell Size",
+          "type": "string"
+        },
+        "grid_cell_size": {
+          "default": 5000,
+          "description": "Define the resolution of the raster grid (in the unit of measurement defined by the coordinate reference system set below). A smaller grid cell size provides more detail, while a larger size generalizes the data.",
+          "exclusiveMaximum": 10000,
+          "exclusiveMinimum": 0,
+          "gt": 0,
+          "lt": 10000,
+          "title": "Custom Grid Cell Size",
+          "type": "number"
+        }
+      },
+      "title": "Customize",
+      "type": "object"
+    },
+    "CollectionCompositeCovariate": {
+      "properties": {
+        "kind": {
+          "const": "collection_composite",
+          "default": "collection_composite",
+          "enum": [
+            "collection_composite"
+          ],
+          "title": "Covariate Type",
+          "type": "string"
+        },
+        "name": {
+          "description": "Column name for this covariate (letters, digits and underscores, e.g. ndvi).",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]{0,39}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "collection_id": {
+          "description": "Earth Engine ImageCollection ID, e.g. MODIS/061/MOD13Q1.",
+          "title": "Image Collection ID",
+          "type": "string"
+        },
+        "band": {
+          "description": "Band to composite, e.g. NDVI.",
+          "title": "Band",
+          "type": "string"
+        },
+        "composite": {
+          "default": "mean",
+          "description": "How images in the window are combined.",
+          "enum": [
+            "mean",
+            "median",
+            "min",
+            "max"
+          ],
+          "title": "Composite",
+          "type": "string"
+        },
+        "start_date": {
+          "default": "",
+          "description": "YYYY-MM-DD. Leave both dates empty to use the workflow time range.",
+          "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$",
+          "title": "Start Date",
+          "type": "string"
+        },
+        "end_date": {
+          "default": "",
+          "description": "YYYY-MM-DD (exclusive).",
+          "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$",
+          "title": "End Date",
+          "type": "string"
+        },
+        "scale_m": {
+          "default": 250.0,
+          "description": "Pixel size Earth Engine samples at. Cells are averaged at no finer than a tenth of the cell size.",
+          "exclusiveMinimum": 0.0,
+          "title": "Sampling Scale (m)",
+          "type": "number"
+        },
+        "multiplier": {
+          "default": 1.0,
+          "description": "Scale factor applied to the values (e.g. 0.0001 for MODIS NDVI).",
+          "title": "Multiplier",
+          "type": "number"
+        },
+        "quadratic": {
+          "default": false,
+          "description": "Also fit this covariate squared, for a hump-shaped (or U-shaped) response.",
+          "title": "Add Quadratic Term",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "collection_id",
+        "band"
+      ],
+      "title": "Collection composite",
+      "type": "object"
+    },
+    "GeeDistanceCovariate": {
+      "properties": {
+        "kind": {
+          "const": "gee_distance",
+          "default": "gee_distance",
+          "enum": [
+            "gee_distance"
+          ],
+          "title": "Covariate Type",
+          "type": "string"
+        },
+        "name": {
+          "description": "Column name for this covariate (letters, digits and underscores, e.g. ndvi).",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]{0,39}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "feature_collection_id": {
+          "description": "Earth Engine FeatureCollection ID.",
+          "title": "Feature Collection ID",
+          "type": "string"
+        },
+        "filter_property": {
+          "default": "",
+          "description": "Optional property to filter features on.",
+          "title": "Filter Property",
+          "type": "string"
+        },
+        "filter_value": {
+          "default": "",
+          "description": "Keep features whose Filter Property equals this.",
+          "title": "Filter Value",
+          "type": "string"
+        },
+        "max_distance_m": {
+          "default": 50000.0,
+          "description": "Distances beyond this are capped at it.",
+          "exclusiveMinimum": 0.0,
+          "title": "Maximum Distance (m)",
+          "type": "number"
+        },
+        "scale_m": {
+          "default": 100.0,
+          "description": "Pixel size Earth Engine samples at. Cells are averaged at no finer than a tenth of the cell size.",
+          "exclusiveMinimum": 0.0,
+          "title": "Sampling Scale (m)",
+          "type": "number"
+        },
+        "quadratic": {
+          "default": false,
+          "description": "Also fit this covariate squared, for a hump-shaped (or U-shaped) response.",
+          "title": "Add Quadratic Term",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "feature_collection_id"
+      ],
+      "title": "Distance to GEE features",
+      "type": "object"
+    },
+    "ImageBandCovariate": {
+      "properties": {
+        "kind": {
+          "const": "image_band",
+          "default": "image_band",
+          "enum": [
+            "image_band"
+          ],
+          "title": "Covariate Type",
+          "type": "string"
+        },
+        "name": {
+          "description": "Column name for this covariate (letters, digits and underscores, e.g. ndvi).",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]{0,39}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "image_id": {
+          "description": "Earth Engine image asset ID, e.g. USGS/SRTMGL1_003.",
+          "title": "Image ID",
+          "type": "string"
+        },
+        "band": {
+          "description": "Band to sample, e.g. elevation.",
+          "title": "Band",
+          "type": "string"
+        },
+        "reducer": {
+          "default": "mean",
+          "description": "How pixel values are summarised within each cell.",
+          "enum": [
+            "mean",
+            "median",
+            "min",
+            "max",
+            "mode"
+          ],
+          "title": "Cell Summary",
+          "type": "string"
+        },
+        "scale_m": {
+          "default": 30.0,
+          "description": "Pixel size Earth Engine samples at. Cells are averaged at no finer than a tenth of the cell size.",
+          "exclusiveMinimum": 0.0,
+          "title": "Sampling Scale (m)",
+          "type": "number"
+        },
+        "multiplier": {
+          "default": 1.0,
+          "description": "Scale factor applied to the values (e.g. 0.0001 for MODIS NDVI).",
+          "title": "Multiplier",
+          "type": "number"
+        },
+        "quadratic": {
+          "default": false,
+          "description": "Also fit this covariate squared, for a hump-shaped (or U-shaped) response.",
+          "title": "Add Quadratic Term",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "image_id",
+        "band"
+      ],
+      "title": "Image band",
+      "type": "object"
+    },
+    "TerrainCovariate": {
+      "properties": {
+        "kind": {
+          "const": "terrain",
+          "default": "terrain",
+          "enum": [
+            "terrain"
+          ],
+          "title": "Covariate Type",
+          "type": "string"
+        },
+        "name": {
+          "description": "Column name for this covariate (letters, digits and underscores, e.g. ndvi).",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]{0,39}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "derivative": {
+          "default": "slope",
+          "description": "slope (degrees), aspect (degrees) or tri (terrain ruggedness index, m).",
+          "enum": [
+            "slope",
+            "aspect",
+            "tri"
+          ],
+          "title": "Derivative",
+          "type": "string"
+        },
+        "dem_image_id": {
+          "default": "USGS/SRTMGL1_003",
+          "description": "Earth Engine DEM image asset ID.",
+          "title": "DEM Image ID",
+          "type": "string"
+        },
+        "band": {
+          "default": "elevation",
+          "title": "Elevation Band",
+          "type": "string"
+        },
+        "scale_m": {
+          "default": 30.0,
+          "description": "Pixel size Earth Engine samples at. Cells are averaged at no finer than a tenth of the cell size.",
+          "exclusiveMinimum": 0.0,
+          "title": "Sampling Scale (m)",
+          "type": "number"
+        },
+        "quadratic": {
+          "default": false,
+          "description": "Also fit this covariate squared, for a hump-shaped (or U-shaped) response.",
+          "title": "Add Quadratic Term",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "Terrain derivative",
+      "type": "object"
+    },
+    "DistanceCovariate": {
+      "properties": {
+        "name": {
+          "description": "Column name for this covariate (letters, digits and underscores, e.g. ndvi).",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]{0,39}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "features": {
+          "discriminator": {
+            "mapping": {
+              "earthranger": "#/$defs/EarthRangerFeatureSource",
+              "file": "#/$defs/FileFeatureSource"
+            },
+            "propertyName": "source"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/EarthRangerFeatureSource"
+            },
+            {
+              "$ref": "#/$defs/FileFeatureSource"
+            }
+          ],
+          "title": "Features"
+        },
+        "quadratic": {
+          "default": false,
+          "description": "Also fit this covariate squared, for a hump-shaped (or U-shaped) response.",
+          "title": "Add Quadratic Term",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "features"
+      ],
+      "title": "Distance to features",
+      "type": "object"
+    },
+    "EarthRangerFeatureSource": {
+      "properties": {
+        "source": {
+          "const": "earthranger",
+          "default": "earthranger",
+          "enum": [
+            "earthranger"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "spatial_features_group_name": {
+          "description": "Name of the spatial feature group in EarthRanger.",
+          "title": "Feature Group",
+          "type": "string"
+        }
+      },
+      "required": [
+        "spatial_features_group_name"
+      ],
+      "title": "EarthRanger feature group",
+      "type": "object"
+    },
+    "FileFeatureSource": {
+      "properties": {
+        "source": {
+          "const": "file",
+          "default": "file",
+          "enum": [
+            "file"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "path_or_url": {
+          "description": "Vector file (GeoPackage, GeoJSON, zipped shapefile, \u2026).",
+          "title": "Path or URL",
+          "type": "string"
+        },
+        "layer": {
+          "default": "",
+          "description": "Layer name, for multi-layer files (optional).",
+          "title": "Layer",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path_or_url"
+      ],
+      "title": "File or URL",
+      "type": "object"
+    },
+    "McmcSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "draws": {
+          "default": 1000,
+          "description": "Draws per chain, after tuning.",
+          "minimum": 50,
+          "title": "Posterior Draws",
+          "type": "integer"
+        },
+        "tune": {
+          "default": 1000,
+          "description": "Warm-up steps per chain.",
+          "minimum": 50,
+          "title": "Tuning Steps",
+          "type": "integer"
+        },
+        "chains": {
+          "default": 2,
+          "description": "Independent MCMC chains.",
+          "maximum": 8,
+          "minimum": 1,
+          "title": "Chains",
+          "type": "integer"
+        },
+        "random_seed": {
+          "default": 42,
+          "description": "Seed for the holdout split and the sampler.",
+          "title": "Random Seed",
+          "type": "integer"
+        }
+      },
+      "title": "McmcSettings",
+      "type": "object"
+    }
+  },
+  "uiSchema": {
+    "workflow_details": {
+      "ui:order": [
+        "name",
+        "description"
+      ]
+    },
+    "time_range": {
+      "ui:order": [
+        "since",
+        "until",
+        "timezone"
+      ]
+    },
+    "Patrol and Event Types": {
+      "er_patrol_and_events_params": {
+        "ui:order": [
+          "patrol_types",
+          "event_types",
+          "status"
+        ]
+      }
+    },
+    "Filter Data": {
+      "patrol_filters": {
+        "ui:order": [
+          "bounding_box",
+          "filter_point_coords",
+          "trajectory_segment_filter"
+        ],
+        "filter_point_coords": {
+          "items": {
+            "ui:options": {
+              "label": false
+            }
+          }
+        }
+      }
+    },
+    "Covariates": {
+      "ui:order": [
+        "gee_covariates",
+        "distance_covariates"
+      ],
+      "gee_covariates": {
+        "covariates": {
+          "items": {
+            "oneOf": [
+              {
+                "kind": {
+                  "ui:widget": "hidden"
+                }
+              },
+              {
+                "kind": {
+                  "ui:widget": "hidden"
+                }
+              },
+              {
+                "kind": {
+                  "ui:widget": "hidden"
+                }
+              },
+              {
+                "kind": {
+                  "ui:widget": "hidden"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "distance_covariates": {
+        "covariates": {
+          "items": {
+            "features": {
+              "oneOf": [
+                {
+                  "source": {
+                    "ui:widget": "hidden"
+                  }
+                },
+                {
+                  "source": {
+                    "ui:widget": "hidden"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "Model": {
+      "ui:order": [
+        "occupancy_design",
+        "occupancy_fit"
+      ],
+      "occupancy_fit": {
+        "ui:order": [
+          "model_type",
+          "prior_sd",
+          "holdout_fraction",
+          "mcmc"
+        ]
+      }
+    },
+    "Prediction and Occupancy Zones": {
+      "ui:order": [
+        "predicted",
+        "occupancy_zones"
+      ],
+      "occupancy_zones": {
+        "ui:order": [
+          "min_patch_area_km2",
+          "max_hole_area_km2"
+        ]
+      }
+    },
+    "ui:order": [
+      "workflow_details",
+      "er_client_name",
+      "gee_client_name",
+      "time_range",
+      "Study Area",
+      "Patrol and Event Types",
+      "Filter Data",
+      "Grid",
+      "Covariates",
+      "Model",
+      "Prediction and Occupancy Zones",
+      "base_map_defs"
+    ],
+    "Grid": {
+      "meshgrid": {
+        "auto_scale_or_custom_cell_size": {
+          "anyOf": [
+            {
+              "ui:options": {
+                "label": false
+              },
+              "auto_scale_or_custom": {
+                "ui:widget": "hidden"
+              }
+            },
+            {
+              "ui:options": {
+                "label": false
+              },
+              "auto_scale_or_custom": {
+                "ui:widget": "hidden"
+              }
+            }
+          ],
+          "auto_scale_or_custom": {
+            "ui:widget": "hidden"
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

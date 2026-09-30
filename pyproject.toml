@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "occupancy-model-tasks"
+dynamic = ["version"]
+description = "Tasks for the occupancy-model ecoscope workflow: GEE/distance covariate labelling of grid cells, a PyMC occupancy GLM, prediction COGs and risk zones."
+requires-python = ">=3.11"
+license = "BSD-3-Clause"
+# ecoscope-platform (pymc, arviz, earthengine-api, rasterio, contourpy, plotly) and
+# wt-registry are provided by the workflow env at runtime.
+dependencies = []
+
+# Makes @register()-decorated tasks discoverable by wt-registry.
+[project.entry-points."wt_registry"]
+occupancy_model_tasks = "occupancy_model_tasks.tasks"
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.0.0"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/occupancy_model_tasks"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::FutureWarning"]

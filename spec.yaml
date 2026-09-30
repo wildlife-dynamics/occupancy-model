@@ -1,0 +1,1303 @@
+id: occupancy_model
+
+metadata:
+  name: Occupancy Model
+  description: >-
+    Fits a Bayesian (PyMC) occupancy model to events recorded on EarthRanger patrols, with
+    patrol effort defining where absences were observed and Google Earth Engine or
+    distance-to-feature covariates explaining occurrence. Produces prediction surfaces
+    (Cloud-Optimised GeoTIFFs), Low/Medium/High occupancy zones for import into EarthRanger, and
+    a dashboard of maps, model diagnostics and coefficients.
+  maintainers:
+    - {name: Jake Wall, email: jakew@earthranger.com, role: owner}
+  license: BSD-3-Clause
+  readme: README.md
+  keywords: [occupancy, pymc, snares, patrols, gee, occupancy-map]
+
+requirements:
+  - name: ecoscope-platform
+    version: ">=2.25.0,<3.0.0"
+    channel: https://repo.prefix.dev/ecoscope-workflows/
+  # ecoscope-platform already declares pydeck; restated so the custom channel's forked
+  # pydeck 0.0.2 cannot win under strict channel priority (fleet workaround).
+  - name: pydeck
+    version: "0.9.2"
+    channel: conda-forge
+  # In-repo task package, editable while in development. Before publish this becomes a
+  # released conda package on the ecoscope-workflows-custom channel (CI rejects path:).
+  - name: occupancy-model-tasks
+    path: /Users/jwall/Documents/GitHub/occupancy-model
+    editable: true
+
+rjsf-overrides:
+  properties:
+    Study Area.properties.study_area.title: ""
+    Study Area.properties.study_area.properties.spatial_features_group_name.title: Study Area Feature Group
+    Study Area.properties.study_area.properties.spatial_features_group_name.description: >-
+      EarthRanger spatial feature group outlining the study area. Its polygons are gridded and
+      predicted over.
+    Study Area.properties.study_area.properties.spatial_features_group_name.ecoscope:transform:
+      - transformer: EarthRangerEnumResolver
+        transformer_kws:
+          type: spatial_feature_group
+          depends_on: properties.er_client_name.properties.data_source.properties.name
+
+    Patrol and Event Types.properties.er_patrol_and_events_params.title: ""
+    Patrol and Event Types.properties.er_patrol_and_events_params.properties.patrol_types.title: Patrol Types
+    Patrol and Event Types.properties.er_patrol_and_events_params.properties.patrol_types.description: >-
+      Patrols whose tracks count as survey effort. Leave empty to include all patrol types.
+    Patrol and Event Types.properties.er_patrol_and_events_params.properties.patrol_types.default: []
+    Patrol and Event Types.properties.er_patrol_and_events_params.properties.patrol_types.ecoscope:transform:
+      - transformer: EarthRangerEnumResolver
+        transformer_kws:
+          type: patrol_type
+          depends_on: properties.er_client_name.properties.data_source.properties.name
+    Patrol and Event Types.properties.er_patrol_and_events_params.properties.event_types.title: Target Event Types
+    Patrol and Event Types.properties.er_patrol_and_events_params.properties.event_types.description: >-
+      Event types recorded on those patrols whose occurrence is modelled. Enter the EarthRanger
+      event type value (e.g. snare_rep), not its display name.
+    Patrol and Event Types.properties.er_patrol_and_events_params.properties.event_types.default: []
+    Patrol and Event Types.properties.er_patrol_and_events_params.properties.event_types.ecoscope:transform:
+      - transformer: EarthRangerEnumResolver
+        transformer_kws:
+          type: event_type
+          depends_on: properties.er_client_name.properties.data_source.properties.name
+    Patrol and Event Types.properties.er_patrol_and_events_params.properties.status.default: ["done"]
+
+    Filter Data.properties.patrol_filters.title: ""
+
+    Grid.properties.meshgrid.title: ""
+    Grid.properties.meshgrid.properties.auto_scale_or_custom_cell_size.title: Grid Cell Size
+    Grid.properties.meshgrid.properties.auto_scale_or_custom_cell_size.ecoscope:advanced: false
+    Grid.properties.meshgrid.properties.auto_scale_or_custom_cell_size.default:
+      auto_scale_or_custom: Customize
+      grid_cell_size: 1000
+
+    Covariates.properties.gee_covariates.title: ""
+    Covariates.properties.distance_covariates.title: ""
+
+    Model.properties.occupancy_design.title: ""
+    Model.properties.occupancy_fit.title: ""
+
+    Prediction and Occupancy Zones.properties.predicted.title: ""
+    Prediction and Occupancy Zones.properties.occupancy_zones.title: ""
+
+  uiSchema:
+    Filter Data.patrol_filters.filter_point_coords.items.ui:options.label: false
+    # hide each row type's discriminator; one entry per union branch, in union order
+    Covariates.gee_covariates.covariates.items:
+      oneOf:
+        - kind:
+            ui:widget: hidden
+        - kind:
+            ui:widget: hidden
+        - kind:
+            ui:widget: hidden
+        - kind:
+            ui:widget: hidden
+    Covariates.distance_covariates.covariates.items.features:
+      oneOf:
+        - source:
+            ui:widget: hidden
+        - source:
+            ui:widget: hidden
+    Grid.meshgrid.auto_scale_or_custom_cell_size:
+      anyOf:
+        - ui:options:
+            label: false
+          auto_scale_or_custom:
+            ui:widget: hidden
+        - ui:options:
+            label: false
+          auto_scale_or_custom:
+            ui:widget: hidden
+      auto_scale_or_custom:
+        ui:widget: hidden
+
+task-instance-defaults:
+  skipif:
+    conditions:
+      - any_is_empty_df
+      - any_dependency_skipped
+
+workflow:
+  # ── Setup ──
+  - name: Workflow Details
+    id: workflow_details
+    task: set_workflow_details
+
+  - name: EarthRanger Data Source
+    id: er_client_name
+    task: set_er_connection
+
+  - name: Earth Engine Data Source
+    id: gee_client_name
+    task: set_gee_connection
+
+  - name: Time Range
+    id: time_range
+    task: set_time_range
+    partial:
+      time_format: "%d %b %Y %H:%M:%S %Z"
+
+  - name: Extract Timezone Selection
+    id: get_timezone
+    task: get_timezone_from_time_range
+    partial:
+      time_range: ${{ workflow.time_range.return }}
+
+  # One model per run: groupers pinned to None -> the AllGrouper (a single "All" view,
+  # which keeps Desktop's Edit Layout). Chains stay in the keyed split/mapvalues shape so
+  # real groupers can be exposed later without restructuring.
+  - name: Groupers
+    id: groupers
+    task: set_groupers
+    partial:
+      groupers: null
+
+  # ── Study area ──
+  - title: Study Area
+    type: task-group
+    description: " "
+    tasks:
+      - name: Study Area
+        id: study_area
+        task: get_spatial_features_group
+        partial:
+          client: ${{ workflow.er_client_name.return }}
+
+  - name: Keep Study Area Polygons
+    id: study_area_polygons
+    task: filter_by_geometry_type
+    partial:
+      df: ${{ workflow.study_area.return }}
+      geometry_types: ["Polygon", "MultiPolygon"]
+
+  # ── Patrols and the events recorded on them (one linked selection) ──
+  - title: Patrol and Event Types
+    type: task-group
+    description: " "
+    tasks:
+      - id: er_patrol_and_events_params
+        task: set_patrols_and_patrol_events_params
+        partial:
+          client: ${{ workflow.er_client_name.return }}
+          time_range: ${{ workflow.time_range.return }}
+          event_states: null
+          include_patrol_details: true
+          raise_on_empty: false
+          include_null_geometry: false
+          truncate_to_time_range: true
+          sub_page_size: 100
+          patrols_overlap_daterange: true
+      - id: prefetch_patrols
+        task: get_patrols_from_combined_params
+        partial:
+          combined_params: ${{ workflow.er_patrol_and_events_params.return }}
+      - id: patrol_obs
+        task: get_patrol_observations_from_patrols_df_and_combined_params
+        partial:
+          patrols_df: ${{ workflow.prefetch_patrols.return }}
+          combined_params: ${{ workflow.er_patrol_and_events_params.return }}
+      - id: patrol_events
+        task: unpack_events_from_patrols_df_and_combined_params
+        partial:
+          patrols_df: ${{ workflow.prefetch_patrols.return }}
+          combined_params: ${{ workflow.er_patrol_and_events_params.return }}
+
+  - name: Convert Patrol Observations to Timezone
+    id: convert_patrols_to_tz
+    task: convert_values_to_timezone
+    partial:
+      df: ${{ workflow.patrol_obs.return }}
+      timezone: ${{ workflow.get_timezone.return }}
+      columns: ["fixtime"]
+
+  - name: Convert Patrol Events to Timezone
+    id: convert_events_to_tz
+    task: convert_values_to_timezone
+    partial:
+      df: ${{ workflow.patrol_events.return }}
+      timezone: ${{ workflow.get_timezone.return }}
+      columns: ["time"]
+
+  # ── Filter Data (qualified: ext-custom registers the same names, should it be added) ──
+  - title: Filter Data
+    type: task-group
+    description: " "
+    tasks:
+      - name: Filters
+        id: patrol_filters
+        task: ecoscope.platform.tasks.config.set_traj_filters
+
+  - name: Split Bounding Box
+    id: bounding_box
+    task: ecoscope.platform.tasks.config.get_bounding_box
+    partial:
+      filters: ${{ workflow.patrol_filters.return }}
+
+  - name: Split Point Coordinates
+    id: filter_point_coords
+    task: ecoscope.platform.tasks.config.get_filter_point_coords
+    partial:
+      filters: ${{ workflow.patrol_filters.return }}
+
+  - name: Split Segment Filter
+    id: segment_filter
+    task: ecoscope.platform.tasks.config.get_segment_filter
+    partial:
+      filters: ${{ workflow.patrol_filters.return }}
+
+  # ── Patrol observations -> trajectories (survey effort) ──
+  - name: Remove Column Prefix (Observations)
+    id: drop_extra_prefix_obs
+    task: drop_column_prefix
+    partial:
+      df: ${{ workflow.convert_patrols_to_tz.return }}
+      prefix: "extra__"
+      duplicate_strategy: "suffix"
+
+  - name: Filter Observation Relocations
+    id: filter_patrol_obs
+    task: apply_reloc_coord_filter
+    partial:
+      df: ${{ workflow.drop_extra_prefix_obs.return }}
+      roi_gdf: null
+      roi_name: null
+      reset_index: false
+      bounding_box: ${{ workflow.bounding_box.return }}
+      filter_point_coords: ${{ workflow.filter_point_coords.return }}
+
+  - name: Trajectory Segment Filter
+    id: patrol_traj
+    task: relocations_to_trajectory
+    partial:
+      relocations: ${{ workflow.filter_patrol_obs.return }}
+      trajectory_segment_filter: ${{ workflow.segment_filter.return }}
+
+  - name: Add temporal index to Patrol Trajectories
+    id: traj_add_temporal_index
+    task: add_temporal_index
+    partial:
+      df: ${{ workflow.patrol_traj.return }}
+      time_col: "segment_start"
+      groupers: ${{ workflow.groupers.return }}
+      cast_to_datetime: true
+      format: "mixed"
+
+  # ── Target events ──
+  - name: Apply Coordinate Filter to Patrol Events
+    id: filter_patrol_events
+    task: apply_reloc_coord_filter
+    partial:
+      df: ${{ workflow.convert_events_to_tz.return }}
+      roi_gdf: null
+      roi_name: null
+      reset_index: true
+      bounding_box: ${{ workflow.bounding_box.return }}
+      filter_point_coords: ${{ workflow.filter_point_coords.return }}
+
+  - name: Add temporal index to Patrol Events
+    id: pe_add_temporal_index
+    task: add_temporal_index
+    partial:
+      df: ${{ workflow.filter_patrol_events.return }}
+      time_col: "time"
+      groupers: ${{ workflow.groupers.return }}
+      cast_to_datetime: true
+      format: "mixed"
+
+  - name: Split Patrol Trajectories by Group
+    id: split_traj_groups
+    task: split_groups
+    partial:
+      df: ${{ workflow.traj_add_temporal_index.return }}
+      groupers: ${{ workflow.groupers.return }}
+
+  - name: Split Patrol Events by Group
+    id: split_pe_groups
+    task: split_groups
+    partial:
+      df: ${{ workflow.pe_add_temporal_index.return }}
+      groupers: ${{ workflow.groupers.return }}
+
+  # ── Grid ──
+  - title: Grid
+    type: task-group
+    description: " "
+    tasks:
+      - name: Grid
+        id: meshgrid
+        task: create_meshgrid
+        partial:
+          aoi: ${{ workflow.study_area_polygons.return }}
+          crs: "EPSG:3857"
+          intersecting_only: true
+
+  # Effort per cell from the tracks; target events counted per cell. Events may be empty
+  # or skipped (no target events) without skipping this task: those cells are absences.
+  # Events are the flat (unsplit) frame -- correct for the pinned AllGrouper; exposing real
+  # groupers later needs a keyed events input here.
+  - name: Count Events and Patrol Effort per Cell
+    id: effort_grid
+    task: count_events_and_effort
+    skipif:
+      conditions:
+        - missing_trajectories_or_grid
+    partial:
+      meshgrid: ${{ workflow.meshgrid.return }}
+      events: ${{ workflow.filter_patrol_events.return }}
+    mapvalues:
+      argnames: trajectories
+      argvalues: ${{ workflow.split_traj_groups.return }}
+
+  # ── Covariates ──
+  - title: Covariates
+    type: task-group
+    description: >-
+      Environmental covariates that explain where target events occur. Each is summarised over
+      every grid cell.
+    tasks:
+      - name: Earth Engine Covariates
+        id: gee_covariates
+        task: set_gee_covariates
+      - name: Distance Covariates
+        id: distance_covariates
+        task: set_distance_covariates
+
+  - name: Label Cells with Earth Engine Covariates
+    id: gee_labels
+    task: label_grid_with_gee_covariates
+    partial:
+      client: ${{ workflow.gee_client_name.return }}
+      grid: ${{ workflow.meshgrid.return }}
+      covariates: ${{ workflow.gee_covariates.return }}
+      time_range: ${{ workflow.time_range.return }}
+      df_chunk_size: 2000
+
+  - name: Label Cells with Distance Covariates
+    id: distance_labels
+    task: label_grid_with_distance_covariates
+    partial:
+      client: ${{ workflow.er_client_name.return }}
+      grid: ${{ workflow.meshgrid.return }}
+      covariates: ${{ workflow.distance_covariates.return }}
+
+  # ── Model ──
+  - title: Model
+    type: task-group
+    description: " "
+    tasks:
+      - name: Survey Design
+        id: occupancy_design
+        task: build_occupancy_design
+        partial:
+          covariate_frames:
+            - ${{ workflow.gee_labels.return }}
+            - ${{ workflow.distance_labels.return }}
+        mapvalues:
+          argnames: cells
+          argvalues: ${{ workflow.effort_grid.return }}
+      - name: Occupancy Model
+        id: occupancy_fit
+        task: fit_occupancy_glm
+        partial:
+          gee_covariates: ${{ workflow.gee_covariates.return }}
+          distance_covariates: ${{ workflow.distance_covariates.return }}
+        mapvalues:
+          argnames: design
+          argvalues: ${{ workflow.occupancy_design.return }}
+
+  - name: Zip Fit and Design
+    id: zipped_fit_design
+    task: groupbykey
+    skipif:
+      conditions:
+        - any_dependency_skipped
+        - all_keyed_iterables_are_skips
+      unpack_depth: 1
+    partial:
+      iterables:
+        - ${{ workflow.occupancy_fit.return }}
+        - ${{ workflow.occupancy_design.return }}
+
+  # ── Prediction and occupancy zones ──
+  - title: Prediction and Occupancy Zones
+    type: task-group
+    description: " "
+    tasks:
+      - name: Prediction
+        id: predicted
+        task: predict_occupancy_surface
+        skipif:
+          conditions:
+            - any_dependency_skipped
+        partial:
+          n_draws: 500
+        mapvalues:
+          argnames: [fit, design]
+          argvalues: ${{ workflow.zipped_fit_design.return }}
+      - name: Occupancy Zones
+        id: occupancy_zones
+        task: classify_occupancy_zones
+        partial:
+          root_path: ${{ env.ECOSCOPE_WORKFLOWS_RESULTS }}
+          boundary: ${{ workflow.study_area_polygons.return }}
+          value_column: "p_mean"
+          class_method: "tertiles"
+          filename_prefix: "occupancy_zones"
+        mapvalues:
+          argnames: gdf
+          argvalues: ${{ workflow.predicted.return }}
+
+  - name: Write Probability COG
+    id: cog_mean
+    task: write_grid_cog
+    partial:
+      value_column: "p_mean"
+      root_path: ${{ env.ECOSCOPE_WORKFLOWS_RESULTS }}
+      filename: "occupancy_mean"
+      nodata: -9999
+    mapvalues:
+      argnames: gdf
+      argvalues: ${{ workflow.predicted.return }}
+
+  - name: Write Uncertainty COG
+    id: cog_sd
+    task: write_grid_cog
+    partial:
+      value_column: "p_sd"
+      root_path: ${{ env.ECOSCOPE_WORKFLOWS_RESULTS }}
+      filename: "occupancy_sd"
+      nodata: -9999
+    mapvalues:
+      argnames: gdf
+      argvalues: ${{ workflow.predicted.return }}
+
+  - name: Persist Cell Table
+    id: persist_cells
+    task: persist_grouped_dfs_for_results_download
+    partial:
+      grouped_dfs: ${{ workflow.predicted.return }}
+      root_path: ${{ env.ECOSCOPE_WORKFLOWS_RESULTS }}
+      filetypes: ["geoparquet"]
+      filename_prefix: "occupancy_cells"
+      sanitize: true
+
+  # Results downloads: persisted through persist_grouped_dfs_for_results_download so each
+  # filename carries the view hash Desktop's Files tab matches on (it lists .csv/.parquet only).
+  - name: Persist Occupancy Zones
+    id: persist_zones
+    task: persist_grouped_dfs_for_results_download
+    partial:
+      grouped_dfs: ${{ workflow.occupancy_zones.return }}
+      root_path: ${{ env.ECOSCOPE_WORKFLOWS_RESULTS }}
+      filetypes: ["geoparquet"]
+      filename_prefix: "occupancy_zones"
+      sanitize: true
+
+  - name: Posterior Draws
+    id: posterior_draws
+    task: get_posterior_draws
+    skipif:
+      conditions:
+        - any_dependency_skipped
+    mapvalues:
+      argnames: fit
+      argvalues: ${{ workflow.occupancy_fit.return }}
+
+  - name: Persist Posterior Draws
+    id: persist_posterior_draws
+    task: persist_grouped_dfs_for_results_download
+    partial:
+      grouped_dfs: ${{ workflow.posterior_draws.return }}
+      root_path: ${{ env.ECOSCOPE_WORKFLOWS_RESULTS }}
+      filetypes: ["csv"]
+      filename_prefix: "posterior_draws"
+      sanitize: false
+
+  - name: Coefficient Summary
+    id: fit_summary
+    task: get_occupancy_fit_summary
+    skipif:
+      conditions:
+        - any_dependency_skipped
+    mapvalues:
+      argnames: fit
+      argvalues: ${{ workflow.occupancy_fit.return }}
+
+  - name: Persist Coefficient Table
+    id: persist_coefficients
+    task: persist_grouped_dfs_for_results_download
+    partial:
+      grouped_dfs: ${{ workflow.fit_summary.return }}
+      root_path: ${{ env.ECOSCOPE_WORKFLOWS_RESULTS }}
+      filetypes: ["csv"]
+      filename_prefix: "coefficients"
+      sanitize: false
+
+  # ── Base maps ──
+  - name: Base Maps
+    id: base_map_defs
+    task: set_base_maps
+
+  # ── Widget: model summary text ──
+  # Catches event types that match nothing on the selected patrols (e.g. a display name
+  # typed instead of the EarthRanger value) and lists the types that are there.
+  - name: Check Target Event Types
+    id: event_type_check
+    task: check_target_event_types
+    skipif:
+      conditions:
+        - never
+    partial:
+      combined_params: ${{ workflow.er_patrol_and_events_params.return }}
+      patrols_df: ${{ workflow.prefetch_patrols.return }}
+
+  - name: Model Summary Text
+    id: run_summary
+    task: summarize_occupancy_run
+    skipif:
+      conditions:
+        - any_dependency_skipped
+    partial:
+      event_type_check: ${{ workflow.event_type_check.return }}
+    mapvalues:
+      argnames: fit
+      argvalues: ${{ workflow.occupancy_fit.return }}
+
+  - name: Model Summary Widget
+    id: summary_widgets
+    task: create_text_widget_single_view
+    skipif:
+      conditions:
+        - never
+    partial:
+      title: "Model Summary"
+    map:
+      argnames: [view, data]
+      argvalues: ${{ workflow.run_summary.return }}
+
+  - name: Merge Model Summary Views
+    id: summary_widget
+    task: merge_widget_views
+    partial:
+      widgets: ${{ workflow.summary_widgets.return }}
+
+  # ── Widgets: stat tiles ──
+  - name: Target Events Count
+    id: stat_events_value
+    task: extract_fit_metric
+    skipif:
+      conditions:
+        - any_dependency_skipped
+    partial:
+      metric: "n_events"
+    mapvalues:
+      argnames: fit
+      argvalues: ${{ workflow.occupancy_fit.return }}
+
+  - name: Target Events Widget
+    id: stat_events_widgets
+    task: create_single_value_widget_single_view
+    skipif:
+      conditions:
+        - never
+    partial:
+      title: "Target Events"
+      decimal_places: 0
+    map:
+      argnames: [view, data]
+      argvalues: ${{ workflow.stat_events_value.return }}
+
+  - name: Merge Target Events Views
+    id: stat_events_widget
+    task: merge_widget_views
+    partial:
+      widgets: ${{ workflow.stat_events_widgets.return }}
+
+  - name: Surveyed Cells Count
+    id: stat_surveyed_value
+    task: extract_fit_metric
+    skipif:
+      conditions:
+        - any_dependency_skipped
+    partial:
+      metric: "n_surveyed"
+    mapvalues:
+      argnames: fit
+      argvalues: ${{ workflow.occupancy_fit.return }}
+
+  - name: Surveyed Cells Widget
+    id: stat_surveyed_widgets
+    task: create_single_value_widget_single_view
+    skipif:
+      conditions:
+        - never
+    partial:
+      title: "Surveyed Cells"
+      decimal_places: 0
+    map:
+      argnames: [view, data]
+      argvalues: ${{ workflow.stat_surveyed_value.return }}
+
+  - name: Merge Surveyed Cells Views
+    id: stat_surveyed_widget
+    task: merge_widget_views
+    partial:
+      widgets: ${{ workflow.stat_surveyed_widgets.return }}
+
+  - name: Presence Cells Count
+    id: stat_presence_value
+    task: extract_fit_metric
+    skipif:
+      conditions:
+        - any_dependency_skipped
+    partial:
+      metric: "n_presence"
+    mapvalues:
+      argnames: fit
+      argvalues: ${{ workflow.occupancy_fit.return }}
+
+  - name: Presence Cells Widget
+    id: stat_presence_widgets
+    task: create_single_value_widget_single_view
+    skipif:
+      conditions:
+        - never
+    partial:
+      title: "Cells with Target Events"
+      decimal_places: 0
+    map:
+      argnames: [view, data]
+      argvalues: ${{ workflow.stat_presence_value.return }}
+
+  - name: Merge Presence Cells Views
+    id: stat_presence_widget
+    task: merge_widget_views
+    partial:
+      widgets: ${{ workflow.stat_presence_widgets.return }}
+
+  - name: AUC Value
+    id: stat_auc_value
+    task: extract_fit_metric
+    skipif:
+      conditions:
+        - any_dependency_skipped
+    partial:
+      metric: "auc"
+    mapvalues:
+      argnames: fit
+      argvalues: ${{ workflow.occupancy_fit.return }}
+
+  - name: AUC Widget
+    id: stat_auc_widgets
+    task: create_single_value_widget_single_view
+    skipif:
+      conditions:
+        - never
+    partial:
+      title: "Holdout AUC"
+      decimal_places: 2
+    map:
+      argnames: [view, data]
+      argvalues: ${{ workflow.stat_auc_value.return }}
+
+  - name: Merge AUC Views
+    id: stat_auc_widget
+    task: merge_widget_views
+    partial:
+      widgets: ${{ workflow.stat_auc_widgets.return }}
+
+  # ── Widget: occupancy probability map (+ target events) ──
+  - name: Drop Cells Without Prediction
+    id: occ_cells
+    task: drop_nan_values_by_column
+    partial:
+      column_name: "p_mean"
+    mapvalues:
+      argnames: df
+      argvalues: ${{ workflow.predicted.return }}
+
+  - name: Sort by Probability
+    id: occ_sorted
+    task: sort_values
+    partial:
+      column_name: "p_mean"
+      ascending: true
+      na_position: "last"
+    mapvalues:
+      argnames: df
+      argvalues: ${{ workflow.occ_cells.return }}
+
+  - name: Classify Probability
+    id: occ_classified
+    task: apply_classification
+    partial:
+      input_column_name: "p_mean"
+      output_column_name: "p_mean_bins"
+      classification_options:
+        scheme: "equal_interval"
+        k: 8
+      label_options:
+        label_ranges: true
+        label_decimals: 2
+    mapvalues:
+      argnames: df
+      argvalues: ${{ workflow.occ_sorted.return }}
+
+  - name: Probability Colormap
+    id: occ_colored
+    task: apply_color_map
+    partial:
+      input_column_name: "p_mean_bins"
+      output_column_name: "p_mean_colormap"
+      colormap: ["#f4db20", "#ffb700", "#ed3ea2", "#a100cb", "#5c4fe7", "#0056c7", "#00882e", "#78d811"]
+    mapvalues:
+      argnames: df
+      argvalues: ${{ workflow.occ_classified.return }}
+
+  - name: Rename Probability Tooltip Columns
+    id: occ_renamed
+    task: map_columns
+    partial:
+      drop_columns: []
+      retain_columns: []
+      rename_columns:
+        p_mean: "Probability"
+        p_sd: "Uncertainty (SD)"
+        effort_km: "Patrol Effort (km)"
+        event_count: "Target Events"
+      raise_if_not_found: false
+      duplicate_strategy: "suffix"
+    mapvalues:
+      argnames: df
+      argvalues: ${{ workflow.occ_colored.return }}
+
+  - name: Probability Polygon Layer
+    id: occ_layer
+    task: create_polygon_layer
+    skipif:
+      conditions:
+        - any_is_empty_df
+        - any_dependency_skipped
+        - all_geometry_are_none
+    partial:
+      layer_style:
+        fill_color_column: "p_mean_colormap"
+        get_line_width: 0
+        opacity: 0.6
+      legend:
+        label_column: "p_mean_bins"
+        color_column: "p_mean_colormap"
+      tooltip_columns: ["Probability", "Uncertainty (SD)", "Patrol Effort (km)", "Target Events"]
+    mapvalues:
+      argnames: geodataframe
+      argvalues: ${{ workflow.occ_renamed.return }}
+
+  - name: Target Event Colormap
+    id: events_colored
+    task: apply_color_map
+    partial:
+      input_column_name: "event_type"
+      output_column_name: "event_colormap"
+      colormap: ["#3e35a3"]
+    mapvalues:
+      argnames: df
+      argvalues: ${{ workflow.split_pe_groups.return }}
+
+  - name: Target Event Point Layer
+    id: events_layer
+    task: create_point_layer
+    skipif:
+      conditions:
+        - any_is_empty_df
+        - any_dependency_skipped
+        - all_geometry_are_none
+    partial:
+      layer_style:
+        get_radius: 4
+        radius_units: "pixels"
+        fill_color_column: "event_colormap"
+        opacity: 1
+        pickable: true
+      legend:
+        label_column: "event_type"
+        color_column: "event_colormap"
+      tooltip_columns: ["event_type", "time", "patrol_serial_number"]
+    mapvalues:
+      argnames: geodataframe
+      argvalues: ${{ workflow.events_colored.return }}
+
+  # Skip only when every layer is missing (keeps the widget placeholder); otherwise
+  # groupbykey drops a skipped layer and the map draws without it.
+  - name: Combine Probability Map Layers
+    id: occ_map_layers
+    task: groupbykey
+    skipif:
+      conditions:
+        - all_dependencies_skipped
+      unpack_depth: 1
+    partial:
+      iterables:
+        - ${{ workflow.occ_layer.return }}
+        - ${{ workflow.events_layer.return }}
+
+  - name: Draw Probability Map
+    id: occ_ecomap
+    task: draw_ecomap
+    partial:
+      title: null
+      tile_layers: ${{ workflow.base_map_defs.return }}
+      north_arrow_style:
+        placement: "top-left"
+      legend_style:
+        title: "Probability"
+        format_title: false
+        placement: "bottom-right"
+      static: false
+      max_zoom: 20
+    mapvalues:
+      argnames: geo_layers
+      argvalues: ${{ workflow.occ_map_layers.return }}
+
+  - name: Persist Probability Map
+    id: occ_ecomap_html
+    task: persist_text
+    partial:
+      root_path: ${{ env.ECOSCOPE_WORKFLOWS_RESULTS }}
+      filename_suffix: "occupancy_map"
+    mapvalues:
+      argnames: text
+      argvalues: ${{ workflow.occ_ecomap.return }}
+
+  - name: Probability Map Widget
+    id: occ_map_widgets
+    task: create_map_widget_single_view
+    skipif:
+      conditions:
+        - never
+    partial:
+      title: "Occupancy Probability"
+    map:
+      argnames: [view, data]
+      argvalues: ${{ workflow.occ_ecomap_html.return }}
+
+  - name: Merge Probability Map Views
+    id: occ_map_widget
+    task: merge_widget_views
+    partial:
+      widgets: ${{ workflow.occ_map_widgets.return }}
+
+  # ── Widget: occupancy zones map ──
+  - name: Sort Occupancy Zones
+    id: zone_sorted
+    task: sort_values
+    partial:
+      column_name: "zone_class"
+      ascending: true
+      na_position: "last"
+    mapvalues:
+      argnames: df
+      argvalues: ${{ workflow.occupancy_zones.return }}
+
+  - name: Occupancy Zone Colormap
+    id: zone_colored
+    task: apply_color_map
+    partial:
+      input_column_name: "zone_label"
+      output_column_name: "zone_colormap"
+      colormap: ["#f4db20", "#ffb700", "#ed3ea2"]
+    mapvalues:
+      argnames: df
+      argvalues: ${{ workflow.zone_sorted.return }}
+
+  - name: Occupancy Zone Polygon Layer
+    id: zone_layer
+    task: create_polygon_layer
+    skipif:
+      conditions:
+        - any_is_empty_df
+        - any_dependency_skipped
+        - all_geometry_are_none
+    partial:
+      layer_style:
+        fill_color_column: "zone_colormap"
+        get_line_width: 1
+        opacity: 0.6
+      legend:
+        label_column: "zone_label"
+        color_column: "zone_colormap"
+      tooltip_columns: ["zone_label", "name", "area_km2"]
+    mapvalues:
+      argnames: geodataframe
+      argvalues: ${{ workflow.zone_colored.return }}
+
+  - name: Draw Occupancy Zone Map
+    id: zone_ecomap
+    task: draw_ecomap
+    partial:
+      title: null
+      tile_layers: ${{ workflow.base_map_defs.return }}
+      north_arrow_style:
+        placement: "top-left"
+      legend_style:
+        title: "Occupancy Zone"
+        format_title: false
+        placement: "bottom-right"
+      static: false
+      max_zoom: 20
+    mapvalues:
+      argnames: geo_layers
+      argvalues: ${{ workflow.zone_layer.return }}
+
+  - name: Persist Occupancy Zone Map
+    id: zone_ecomap_html
+    task: persist_text
+    partial:
+      root_path: ${{ env.ECOSCOPE_WORKFLOWS_RESULTS }}
+      filename_suffix: "occupancy_zone_map"
+    mapvalues:
+      argnames: text
+      argvalues: ${{ workflow.zone_ecomap.return }}
+
+  - name: Occupancy Zone Map Widget
+    id: zone_map_widgets
+    task: create_map_widget_single_view
+    skipif:
+      conditions:
+        - never
+    partial:
+      title: "Occupancy Zones"
+    map:
+      argnames: [view, data]
+      argvalues: ${{ workflow.zone_ecomap_html.return }}
+
+  - name: Merge Occupancy Zone Map Views
+    id: zone_map_widget
+    task: merge_widget_views
+    partial:
+      widgets: ${{ workflow.zone_map_widgets.return }}
+
+  # ── Widget: uncertainty map ──
+  - name: Sort by Uncertainty
+    id: sd_sorted
+    task: sort_values
+    partial:
+      column_name: "p_sd"
+      ascending: true
+      na_position: "last"
+    mapvalues:
+      argnames: df
+      argvalues: ${{ workflow.occ_cells.return }}
+
+  - name: Classify Uncertainty
+    id: sd_classified
+    task: apply_classification
+    partial:
+      input_column_name: "p_sd"
+      output_column_name: "p_sd_bins"
+      classification_options:
+        scheme: "equal_interval"
+        k: 8
+      label_options:
+        label_ranges: true
+        label_decimals: 3
+    mapvalues:
+      argnames: df
+      argvalues: ${{ workflow.sd_sorted.return }}
+
+  - name: Uncertainty Colormap
+    id: sd_colored
+    task: apply_color_map
+    partial:
+      input_column_name: "p_sd_bins"
+      output_column_name: "p_sd_colormap"
+      colormap: ["#f4db20", "#ffb700", "#ed3ea2", "#a100cb", "#5c4fe7", "#0056c7", "#00882e", "#78d811"]
+    mapvalues:
+      argnames: df
+      argvalues: ${{ workflow.sd_classified.return }}
+
+  - name: Uncertainty Polygon Layer
+    id: sd_layer
+    task: create_polygon_layer
+    skipif:
+      conditions:
+        - any_is_empty_df
+        - any_dependency_skipped
+        - all_geometry_are_none
+    partial:
+      layer_style:
+        fill_color_column: "p_sd_colormap"
+        get_line_width: 0
+        opacity: 0.6
+      legend:
+        label_column: "p_sd_bins"
+        color_column: "p_sd_colormap"
+      tooltip_columns: ["p_sd", "p_mean"]
+    mapvalues:
+      argnames: geodataframe
+      argvalues: ${{ workflow.sd_colored.return }}
+
+  - name: Draw Uncertainty Map
+    id: sd_ecomap
+    task: draw_ecomap
+    partial:
+      title: null
+      tile_layers: ${{ workflow.base_map_defs.return }}
+      north_arrow_style:
+        placement: "top-left"
+      legend_style:
+        title: "Uncertainty (SD)"
+        format_title: false
+        placement: "bottom-right"
+      static: false
+      max_zoom: 20
+    mapvalues:
+      argnames: geo_layers
+      argvalues: ${{ workflow.sd_layer.return }}
+
+  - name: Persist Uncertainty Map
+    id: sd_ecomap_html
+    task: persist_text
+    partial:
+      root_path: ${{ env.ECOSCOPE_WORKFLOWS_RESULTS }}
+      filename_suffix: "uncertainty_map"
+    mapvalues:
+      argnames: text
+      argvalues: ${{ workflow.sd_ecomap.return }}
+
+  - name: Uncertainty Map Widget
+    id: sd_map_widgets
+    task: create_map_widget_single_view
+    skipif:
+      conditions:
+        - never
+    partial:
+      title: "Prediction Uncertainty"
+    map:
+      argnames: [view, data]
+      argvalues: ${{ workflow.sd_ecomap_html.return }}
+
+  - name: Merge Uncertainty Map Views
+    id: sd_map_widget
+    task: merge_widget_views
+    partial:
+      widgets: ${{ workflow.sd_map_widgets.return }}
+
+  # ── Widget: survey map (surveyed cells, presence vs absence) ──
+  - name: Keep Surveyed Cells
+    id: survey_cells
+    task: drop_nan_values_by_column
+    partial:
+      column_name: "surveyed_y"
+    mapvalues:
+      argnames: df
+      argvalues: ${{ workflow.occupancy_design.return }}
+
+  - name: Sort by Survey Status
+    id: survey_sorted
+    task: sort_values
+    partial:
+      column_name: "survey_status"
+      ascending: false
+      na_position: "last"
+    mapvalues:
+      argnames: df
+      argvalues: ${{ workflow.survey_cells.return }}
+
+  - name: Survey Status Colormap
+    id: survey_colored
+    task: apply_color_map
+    partial:
+      input_column_name: "survey_status"
+      output_column_name: "survey_colormap"
+      colormap: ["#3e35a3", "#488a00"]
+    mapvalues:
+      argnames: df
+      argvalues: ${{ workflow.survey_sorted.return }}
+
+  - name: Rename Survey Tooltip Columns
+    id: survey_renamed
+    task: map_columns
+    partial:
+      drop_columns: []
+      retain_columns: []
+      rename_columns:
+        survey_status: "Survey Status"
+        effort_km: "Patrol Effort (km)"
+        event_count: "Target Events"
+      raise_if_not_found: false
+      duplicate_strategy: "suffix"
+    mapvalues:
+      argnames: df
+      argvalues: ${{ workflow.survey_colored.return }}
+
+  - name: Survey Polygon Layer
+    id: survey_layer
+    task: create_polygon_layer
+    skipif:
+      conditions:
+        - any_is_empty_df
+        - any_dependency_skipped
+        - all_geometry_are_none
+    partial:
+      layer_style:
+        fill_color_column: "survey_colormap"
+        get_line_width: 0
+        opacity: 0.6
+      legend:
+        label_column: "Survey Status"
+        color_column: "survey_colormap"
+      tooltip_columns: ["Survey Status", "Patrol Effort (km)", "Target Events"]
+    mapvalues:
+      argnames: geodataframe
+      argvalues: ${{ workflow.survey_renamed.return }}
+
+  - name: Draw Survey Map
+    id: survey_ecomap
+    task: draw_ecomap
+    partial:
+      title: null
+      tile_layers: ${{ workflow.base_map_defs.return }}
+      north_arrow_style:
+        placement: "top-left"
+      legend_style:
+        title: "Survey Status"
+        format_title: false
+        placement: "bottom-right"
+      static: false
+      max_zoom: 20
+    mapvalues:
+      argnames: geo_layers
+      argvalues: ${{ workflow.survey_layer.return }}
+
+  - name: Persist Survey Map
+    id: survey_ecomap_html
+    task: persist_text
+    partial:
+      root_path: ${{ env.ECOSCOPE_WORKFLOWS_RESULTS }}
+      filename_suffix: "survey_map"
+    mapvalues:
+      argnames: text
+      argvalues: ${{ workflow.survey_ecomap.return }}
+
+  - name: Survey Map Widget
+    id: survey_map_widgets
+    task: create_map_widget_single_view
+    skipif:
+      conditions:
+        - never
+    partial:
+      title: "Surveyed Cells"
+    map:
+      argnames: [view, data]
+      argvalues: ${{ workflow.survey_ecomap_html.return }}
+
+  - name: Merge Survey Map Views
+    id: survey_map_widget
+    task: merge_widget_views
+    partial:
+      widgets: ${{ workflow.survey_map_widgets.return }}
+
+  # ── Widget: coefficient plot ──
+  - name: Draw Coefficient Plot
+    id: coef_plot
+    task: draw_coefficient_plot
+    partial:
+      title: ""
+    mapvalues:
+      argnames: summary
+      argvalues: ${{ workflow.fit_summary.return }}
+
+  - name: Persist Coefficient Plot
+    id: coef_plot_html
+    task: persist_text
+    partial:
+      root_path: ${{ env.ECOSCOPE_WORKFLOWS_RESULTS }}
+      filename_suffix: "coefficient_plot"
+    mapvalues:
+      argnames: text
+      argvalues: ${{ workflow.coef_plot.return }}
+
+  - name: Coefficient Plot Widget
+    id: coef_plot_widgets
+    task: create_plot_widget_single_view
+    skipif:
+      conditions:
+        - never
+    partial:
+      title: "Covariate Effects"
+    map:
+      argnames: [view, data]
+      argvalues: ${{ workflow.coef_plot_html.return }}
+
+  - name: Merge Coefficient Plot Views
+    id: coef_plot_widget
+    task: merge_widget_views
+    partial:
+      widgets: ${{ workflow.coef_plot_widgets.return }}
+
+  # ── Widget: coefficient table ──
+  - name: Draw Coefficient Table
+    id: coef_table
+    task: draw_table
+    partial:
+      columns: null
+      table_config:
+        enable_sorting: true
+        enable_filtering: false
+        enable_download: true
+        hide_header: false
+    mapvalues:
+      argnames: dataframe
+      argvalues: ${{ workflow.fit_summary.return }}
+
+  - name: Persist Coefficient Table HTML
+    id: coef_table_html
+    task: persist_text
+    partial:
+      root_path: ${{ env.ECOSCOPE_WORKFLOWS_RESULTS }}
+      filename_suffix: "coefficient_table"
+    mapvalues:
+      argnames: text
+      argvalues: ${{ workflow.coef_table.return }}
+
+  - name: Coefficient Table Widget
+    id: coef_table_widgets
+    task: create_table_widget_single_view
+    skipif:
+      conditions:
+        - never
+    partial:
+      title: "Coefficients (standardised)"
+    map:
+      argnames: [view, data]
+      argvalues: ${{ workflow.coef_table_html.return }}
+
+  - name: Merge Coefficient Table Views
+    id: coef_table_widget
+    task: merge_widget_views
+    partial:
+      widgets: ${{ workflow.coef_table_widgets.return }}
+
+  # ── Dashboard ──
+  - name: Create Dashboard
+    id: occupancy_dashboard
+    task: gather_dashboard
+    partial:
+      details: ${{ workflow.workflow_details.return }}
+      widgets:
+        - ${{ workflow.summary_widget.return }}
+        - ${{ workflow.stat_events_widget.return }}
+        - ${{ workflow.stat_surveyed_widget.return }}
+        - ${{ workflow.stat_presence_widget.return }}
+        - ${{ workflow.stat_auc_widget.return }}
+        - ${{ workflow.occ_map_widget.return }}
+        - ${{ workflow.zone_map_widget.return }}
+        - ${{ workflow.sd_map_widget.return }}
+        - ${{ workflow.survey_map_widget.return }}
+        - ${{ workflow.coef_plot_widget.return }}
+        - ${{ workflow.coef_table_widget.return }}
+      groupers: ${{ workflow.groupers.return }}
+      time_range: ${{ workflow.time_range.return }}

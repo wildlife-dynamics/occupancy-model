@@ -1,0 +1,296 @@
+# Test cases for occupancy_model. Mock cases run on the synthetic fixtures built by
+# dev/fixtures/build_occupancy_fixtures.py (see its docstring for what each case relies on).
+# Every io task is overridden so the AOI, patrols, events and covariate grids line up.
+
+base:
+  name: Base case
+  description: >-
+    Untouched form defaults on the synthetic fixtures: patrols -> trajectories, linked bird_sighting_rep
+    events (fire_rep distractors filtered out), 1 km grid, the three default GEE covariates, effort-adjusted
+    (cloglog) model, prediction COGs, occupancy zones and every widget.
+  mock_io: true
+  mock_io_overrides:
+    ecoscope.platform.tasks.io.get_spatial_features_group: dev/fixtures/get-spatial-features-group.example-return.parquet
+    ecoscope.platform.tasks.io.get_patrols_from_combined_params: dev/fixtures/get-patrols-from-combined-params.example-return.parquet
+    ecoscope.platform.tasks.io.get_patrol_observations_from_patrols_df_and_combined_params: >-
+      dev/fixtures/get-patrol-observations-from-patrols-df-and-combined-params.example-return.parquet
+    occupancy_model_tasks.tasks.label_grid_with_gee_covariates: dev/fixtures/label-grid-with-gee-covariates.example-return.parquet
+    occupancy_model_tasks.tasks.label_grid_with_distance_covariates: dev/fixtures/label-grid-with-distance-covariates.example-return.parquet
+  params:
+    workflow_details: {name: Occupancy Model, description: Bird sighting occupancy on ecoscope patrols
+        (synthetic test data).}
+    er_client_name:
+      data_source: {name: mep_dev}
+    gee_client_name:
+      data_source: {name: gee_dev}
+    time_range:
+      since: '2015-01-01T00:00:00'
+      until: '2016-12-31T23:59:59'
+      timezone: {label: 'Africa/Nairobi (UTC+03:00)', tzCode: Africa/Nairobi, name: '(UTC+03:00) Nairobi',
+        utc: '+03:00'}
+    study_area: {spatial_features_group_name: Synthetic Occupancy AOI}
+    er_patrol_and_events_params:
+      patrol_types: [ecoscope_patrol]
+      event_types: [bird_sighting_rep]
+      status: [done]
+    patrol_filters:
+      trajectory_segment_filter: {min_length_meters: 0.001, max_length_meters: 100000, max_time_secs: 172800,
+        min_time_secs: 1, max_speed_kmhr: 500, min_speed_kmhr: 0.01}
+      bounding_box: {min_x: -180.0, max_x: 180.0, min_y: -90.0, max_y: 90.0}
+      filter_point_coords:
+      - {x: 180.0, y: 90.0}
+      - {x: 0.0, y: 0.0}
+      - {x: 1.0, y: 1.0}
+    meshgrid:
+      auto_scale_or_custom_cell_size: {auto_scale_or_custom: Customize, grid_cell_size: 1000}
+    gee_covariates:
+      covariates:
+      - {kind: image_band, name: elevation, image_id: USGS/SRTMGL1_003, band: elevation, reducer: mean,
+        scale_m: 30.0, multiplier: 1.0, quadratic: false}
+      - {kind: terrain, name: slope, derivative: slope, dem_image_id: USGS/SRTMGL1_003, band: elevation,
+        scale_m: 30.0, quadratic: false}
+      - {kind: collection_composite, name: ndvi, collection_id: MODIS/061/MOD13Q1, band: NDVI, composite: mean,
+        scale_m: 250.0, multiplier: 0.0001, quadratic: false}
+    distance_covariates:
+      covariates: []
+    occupancy_design: {min_effort_km: 0.5}
+    occupancy_fit:
+      model_type: cloglog_effort
+      prior_sd: 1.0
+      holdout_fraction: 0.2
+      mcmc: {draws: 1000, tune: 1000, chains: 2, random_seed: 42}
+    predicted: {reference_effort_km: 1.0}
+    occupancy_zones: {min_patch_area_km2: 2.0, max_hole_area_km2: 2.0}
+logistic_quadratic:
+  name: Logistic model with quadratic and distance terms
+  description: >-
+    Logistic link, quadratic terms on ndvi and slope, a distance-to-feature covariate (dist_station, from
+    the distance fixture), no holdout (in-sample AUC) and no minimum zone-patch area.
+  mock_io: true
+  mock_io_overrides:
+    ecoscope.platform.tasks.io.get_spatial_features_group: dev/fixtures/get-spatial-features-group.example-return.parquet
+    ecoscope.platform.tasks.io.get_patrols_from_combined_params: dev/fixtures/get-patrols-from-combined-params.example-return.parquet
+    ecoscope.platform.tasks.io.get_patrol_observations_from_patrols_df_and_combined_params: >-
+      dev/fixtures/get-patrol-observations-from-patrols-df-and-combined-params.example-return.parquet
+    occupancy_model_tasks.tasks.label_grid_with_gee_covariates: dev/fixtures/label-grid-with-gee-covariates.example-return.parquet
+    occupancy_model_tasks.tasks.label_grid_with_distance_covariates: dev/fixtures/label-grid-with-distance-covariates.example-return.parquet
+  params:
+    workflow_details: {name: Occupancy Model, description: Bird sighting occupancy on ecoscope patrols
+        (synthetic test data).}
+    er_client_name:
+      data_source: {name: mep_dev}
+    gee_client_name:
+      data_source: {name: gee_dev}
+    time_range:
+      since: '2015-01-01T00:00:00'
+      until: '2016-12-31T23:59:59'
+      timezone: {label: 'Africa/Nairobi (UTC+03:00)', tzCode: Africa/Nairobi, name: '(UTC+03:00) Nairobi',
+        utc: '+03:00'}
+    study_area: {spatial_features_group_name: Synthetic Occupancy AOI}
+    er_patrol_and_events_params:
+      patrol_types: [ecoscope_patrol]
+      event_types: [bird_sighting_rep]
+      status: [done]
+    patrol_filters:
+      trajectory_segment_filter: {min_length_meters: 0.001, max_length_meters: 100000, max_time_secs: 172800,
+        min_time_secs: 1, max_speed_kmhr: 500, min_speed_kmhr: 0.01}
+      bounding_box: {min_x: -180.0, max_x: 180.0, min_y: -90.0, max_y: 90.0}
+      filter_point_coords:
+      - {x: 180.0, y: 90.0}
+      - {x: 0.0, y: 0.0}
+      - {x: 1.0, y: 1.0}
+    meshgrid:
+      auto_scale_or_custom_cell_size: {auto_scale_or_custom: Customize, grid_cell_size: 1000}
+    gee_covariates:
+      covariates:
+      - {kind: image_band, name: elevation, image_id: USGS/SRTMGL1_003, band: elevation, reducer: mean,
+        scale_m: 30.0, multiplier: 1.0, quadratic: false}
+      - {kind: terrain, name: slope, derivative: slope, dem_image_id: USGS/SRTMGL1_003, band: elevation,
+        scale_m: 30.0, quadratic: true}
+      - {kind: collection_composite, name: ndvi, collection_id: MODIS/061/MOD13Q1, band: NDVI, composite: mean,
+        scale_m: 250.0, multiplier: 0.0001, quadratic: true}
+    distance_covariates:
+      covariates:
+      - name: dist_station
+        features: {source: earthranger, spatial_features_group_name: Synthetic Stations}
+        quadratic: false
+    occupancy_design: {min_effort_km: 0.5}
+    occupancy_fit:
+      model_type: logit
+      prior_sd: 1.0
+      holdout_fraction: 0.0
+      mcmc: {draws: 1000, tune: 1000, chains: 2, random_seed: 42}
+    predicted: {reference_effort_km: 1.0}
+    occupancy_zones: {min_patch_area_km2: 0.0, max_hole_area_km2: 0.0}
+no_events:
+  name: Patrols without target events
+  description: >-
+    The same patrols with every bird_sighting_rep removed: all surveyed cells are absences, the fit returns
+    not_fitted, prediction/COG/zone/map chains skip, and the Model Summary explains why.
+  mock_io: true
+  mock_io_overrides:
+    ecoscope.platform.tasks.io.get_spatial_features_group: dev/fixtures/get-spatial-features-group.example-return.parquet
+    ecoscope.platform.tasks.io.get_patrols_from_combined_params: dev/fixtures/get-patrols-from-combined-params.no-target-events.parquet
+    ecoscope.platform.tasks.io.get_patrol_observations_from_patrols_df_and_combined_params: >-
+      dev/fixtures/get-patrol-observations-from-patrols-df-and-combined-params.example-return.parquet
+    occupancy_model_tasks.tasks.label_grid_with_gee_covariates: dev/fixtures/label-grid-with-gee-covariates.example-return.parquet
+    occupancy_model_tasks.tasks.label_grid_with_distance_covariates: dev/fixtures/label-grid-with-distance-covariates.example-return.parquet
+  params:
+    workflow_details: {name: Occupancy Model, description: Bird sighting occupancy on ecoscope patrols
+        (synthetic test data).}
+    er_client_name:
+      data_source: {name: mep_dev}
+    gee_client_name:
+      data_source: {name: gee_dev}
+    time_range:
+      since: '2015-01-01T00:00:00'
+      until: '2016-12-31T23:59:59'
+      timezone: {label: 'Africa/Nairobi (UTC+03:00)', tzCode: Africa/Nairobi, name: '(UTC+03:00) Nairobi',
+        utc: '+03:00'}
+    study_area: {spatial_features_group_name: Synthetic Occupancy AOI}
+    er_patrol_and_events_params:
+      patrol_types: [ecoscope_patrol]
+      event_types: [bird_sighting_rep]
+      status: [done]
+    patrol_filters:
+      trajectory_segment_filter: {min_length_meters: 0.001, max_length_meters: 100000, max_time_secs: 172800,
+        min_time_secs: 1, max_speed_kmhr: 500, min_speed_kmhr: 0.01}
+      bounding_box: {min_x: -180.0, max_x: 180.0, min_y: -90.0, max_y: 90.0}
+      filter_point_coords:
+      - {x: 180.0, y: 90.0}
+      - {x: 0.0, y: 0.0}
+      - {x: 1.0, y: 1.0}
+    meshgrid:
+      auto_scale_or_custom_cell_size: {auto_scale_or_custom: Customize, grid_cell_size: 1000}
+    gee_covariates:
+      covariates:
+      - {kind: image_band, name: elevation, image_id: USGS/SRTMGL1_003, band: elevation, reducer: mean,
+        scale_m: 30.0, multiplier: 1.0, quadratic: false}
+      - {kind: terrain, name: slope, derivative: slope, dem_image_id: USGS/SRTMGL1_003, band: elevation,
+        scale_m: 30.0, quadratic: false}
+      - {kind: collection_composite, name: ndvi, collection_id: MODIS/061/MOD13Q1, band: NDVI, composite: mean,
+        scale_m: 250.0, multiplier: 0.0001, quadratic: false}
+    distance_covariates:
+      covariates: []
+    occupancy_design: {min_effort_km: 0.5}
+    occupancy_fit:
+      model_type: cloglog_effort
+      prior_sd: 1.0
+      holdout_fraction: 0.2
+      mcmc: {draws: 1000, tune: 1000, chains: 2, random_seed: 42}
+    predicted: {reference_effort_km: 1.0}
+    occupancy_zones: {min_patch_area_km2: 2.0, max_hole_area_km2: 2.0}
+wrong_event_type:
+  name: Event type entered as display name
+  description: >-
+    event_types ['bird_sighting'] (not the EarthRanger value bird_sighting_rep) matches nothing on the
+    patrols: no model is fitted and the Model Summary names the event types found on the patrols.
+  mock_io: true
+  mock_io_overrides:
+    ecoscope.platform.tasks.io.get_spatial_features_group: dev/fixtures/get-spatial-features-group.example-return.parquet
+    ecoscope.platform.tasks.io.get_patrols_from_combined_params: dev/fixtures/get-patrols-from-combined-params.example-return.parquet
+    ecoscope.platform.tasks.io.get_patrol_observations_from_patrols_df_and_combined_params: >-
+      dev/fixtures/get-patrol-observations-from-patrols-df-and-combined-params.example-return.parquet
+    occupancy_model_tasks.tasks.label_grid_with_gee_covariates: dev/fixtures/label-grid-with-gee-covariates.example-return.parquet
+    occupancy_model_tasks.tasks.label_grid_with_distance_covariates: dev/fixtures/label-grid-with-distance-covariates.example-return.parquet
+  params:
+    workflow_details: {name: Occupancy Model, description: Bird sighting occupancy on ecoscope patrols
+        (synthetic test data).}
+    er_client_name:
+      data_source: {name: mep_dev}
+    gee_client_name:
+      data_source: {name: gee_dev}
+    time_range:
+      since: '2015-01-01T00:00:00'
+      until: '2016-12-31T23:59:59'
+      timezone: {label: 'Africa/Nairobi (UTC+03:00)', tzCode: Africa/Nairobi, name: '(UTC+03:00) Nairobi',
+        utc: '+03:00'}
+    study_area: {spatial_features_group_name: Synthetic Occupancy AOI}
+    er_patrol_and_events_params:
+      patrol_types: [ecoscope_patrol]
+      event_types: [bird_sighting]
+      status: [done]
+    patrol_filters:
+      trajectory_segment_filter: {min_length_meters: 0.001, max_length_meters: 100000, max_time_secs: 172800,
+        min_time_secs: 1, max_speed_kmhr: 500, min_speed_kmhr: 0.01}
+      bounding_box: {min_x: -180.0, max_x: 180.0, min_y: -90.0, max_y: 90.0}
+      filter_point_coords:
+      - {x: 180.0, y: 90.0}
+      - {x: 0.0, y: 0.0}
+      - {x: 1.0, y: 1.0}
+    meshgrid:
+      auto_scale_or_custom_cell_size: {auto_scale_or_custom: Customize, grid_cell_size: 1000}
+    gee_covariates:
+      covariates:
+      - {kind: image_band, name: elevation, image_id: USGS/SRTMGL1_003, band: elevation, reducer: mean,
+        scale_m: 30.0, multiplier: 1.0, quadratic: false}
+      - {kind: terrain, name: slope, derivative: slope, dem_image_id: USGS/SRTMGL1_003, band: elevation,
+        scale_m: 30.0, quadratic: false}
+      - {kind: collection_composite, name: ndvi, collection_id: MODIS/061/MOD13Q1, band: NDVI, composite: mean,
+        scale_m: 250.0, multiplier: 0.0001, quadratic: false}
+    distance_covariates:
+      covariates: []
+    occupancy_design: {min_effort_km: 0.5}
+    occupancy_fit:
+      model_type: cloglog_effort
+      prior_sd: 1.0
+      holdout_fraction: 0.2
+      mcmc: {draws: 1000, tune: 1000, chains: 2, random_seed: 42}
+    predicted: {reference_effort_km: 1.0}
+    occupancy_zones: {min_patch_area_km2: 2.0, max_hole_area_km2: 2.0}
+empty:
+  name: Empty data
+  description: >-
+    Empty study area, patrols, observations and covariate grids; the run must complete with placeholder
+    widgets.
+  mock_io: true
+  mock_io_overrides: {ecoscope.platform.tasks.io.get_spatial_features_group: dev/fixtures/get-spatial-features-group.empty.parquet,
+    ecoscope.platform.tasks.io.get_patrols_from_combined_params: dev/fixtures/get-patrols-from-combined-params.empty.parquet,
+    ecoscope.platform.tasks.io.get_patrol_observations_from_patrols_df_and_combined_params: dev/fixtures/get-patrol-observations-from-patrols-df-and-combined-params.empty.parquet,
+    occupancy_model_tasks.tasks.label_grid_with_gee_covariates: dev/fixtures/label-grid-with-gee-covariates.empty.parquet,
+    occupancy_model_tasks.tasks.label_grid_with_distance_covariates: dev/fixtures/label-grid-with-distance-covariates.empty.parquet}
+  params:
+    workflow_details: {name: Occupancy Model, description: Bird sighting occupancy on ecoscope patrols
+        (synthetic test data).}
+    er_client_name:
+      data_source: {name: mep_dev}
+    gee_client_name:
+      data_source: {name: gee_dev}
+    time_range:
+      since: '2015-01-01T00:00:00'
+      until: '2016-12-31T23:59:59'
+      timezone: {label: 'Africa/Nairobi (UTC+03:00)', tzCode: Africa/Nairobi, name: '(UTC+03:00) Nairobi',
+        utc: '+03:00'}
+    study_area: {spatial_features_group_name: Synthetic Occupancy AOI}
+    er_patrol_and_events_params:
+      patrol_types: [ecoscope_patrol]
+      event_types: [bird_sighting_rep]
+      status: [done]
+    patrol_filters:
+      trajectory_segment_filter: {min_length_meters: 0.001, max_length_meters: 100000, max_time_secs: 172800,
+        min_time_secs: 1, max_speed_kmhr: 500, min_speed_kmhr: 0.01}
+      bounding_box: {min_x: -180.0, max_x: 180.0, min_y: -90.0, max_y: 90.0}
+      filter_point_coords:
+      - {x: 180.0, y: 90.0}
+      - {x: 0.0, y: 0.0}
+      - {x: 1.0, y: 1.0}
+    meshgrid:
+      auto_scale_or_custom_cell_size: {auto_scale_or_custom: Customize, grid_cell_size: 1000}
+    gee_covariates:
+      covariates:
+      - {kind: image_band, name: elevation, image_id: USGS/SRTMGL1_003, band: elevation, reducer: mean,
+        scale_m: 30.0, multiplier: 1.0, quadratic: false}
+      - {kind: terrain, name: slope, derivative: slope, dem_image_id: USGS/SRTMGL1_003, band: elevation,
+        scale_m: 30.0, quadratic: false}
+      - {kind: collection_composite, name: ndvi, collection_id: MODIS/061/MOD13Q1, band: NDVI, composite: mean,
+        scale_m: 250.0, multiplier: 0.0001, quadratic: false}
+    distance_covariates:
+      covariates: []
+    occupancy_design: {min_effort_km: 0.5}
+    occupancy_fit:
+      model_type: cloglog_effort
+      prior_sd: 1.0
+      holdout_fraction: 0.2
+      mcmc: {draws: 1000, tune: 1000, chains: 2, random_seed: 42}
+    predicted: {reference_effort_km: 1.0}
+    occupancy_zones: {min_patch_area_km2: 2.0, max_hole_area_km2: 2.0}
